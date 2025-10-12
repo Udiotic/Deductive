@@ -24,5 +24,3 @@ Frontend
 # editor/OS junk
 .DS_Store
 
-# Do NOT ignore the Dockerfile!
-# Dockerfile
