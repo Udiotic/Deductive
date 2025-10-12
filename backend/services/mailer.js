@@ -9,18 +9,48 @@ function makeTransport() {
     MAIL_USER,
     MAIL_PASS,
   } = process.env;
-  const secure = MAIL_PORT === '465';
-  return nodemailer.createTransport({
+  
+  const port = Number(MAIL_PORT);
+  const isSecure = port === 465;
+  
+  // Debug current configuration
+  console.log('📧 Email Configuration:', {
     host: MAIL_HOST,
-    port: Number(MAIL_PORT),
-    secure,
-    auth: { user: MAIL_USER, pass: MAIL_PASS },
+    port: port,
+    secure: isSecure,
+    user: MAIL_USER ? `${MAIL_USER.substring(0, 3)}***` : 'MISSING',
+    hasPassword: !!MAIL_PASS
+  });
+  
+  const config = {
+    host: MAIL_HOST,
+    port: port,
+    secure: isSecure,
+    auth: { 
+      user: MAIL_USER, 
+      pass: MAIL_PASS 
+    },
     pool: true,
     maxConnections: 3,
     maxMessages: 50,
     logger: true,
-  });
+    // Add timeout configurations
+    connectionTimeout: 60000,  // 60 seconds
+    greetingTimeout: 30000,    // 30 seconds
+    socketTimeout: 60000,      // 60 seconds
+  };
+  
+  // For port 587 (STARTTLS), add TLS configuration
+  if (port === 587) {
+    config.requireTLS = true;
+    config.tls = {
+      ciphers: 'SSLv3'
+    };
+  }
+  
+  return nodemailer.createTransport(config);
 }
+
 
 export function getTransporter() {
   if (!transporter) {
@@ -32,7 +62,11 @@ export function getTransporter() {
   return transporter;
 }
 
-const fromAddr = () => process.env.MAIL_FROM || process.env.MAIL_USER;
+const fromAddr = () => {
+  const addr = process.env.MAIL_FROM || process.env.MAIL_USER;
+  console.log('📧 fromAddr():', addr);
+  return addr;
+};
 
 // Modern email template base
 const getEmailTemplate = (content) => `
@@ -141,7 +175,10 @@ export async function sendVerificationCodeEmail(to, code) {
 
   const t = getTransporter();
   const info = await t.sendMail({
-    from: `Deductive <${fromAddr()}>`,
+    from: {
+      name: 'Deductive',
+      address: fromAddr()
+    },
     to,
     subject: '🧠 Verify your Deductive account',
     html: getEmailTemplate(content),
@@ -202,7 +239,10 @@ export async function sendPasswordResetEmail(to, resetLink) {
 
   const t = getTransporter();
   const info = await t.sendMail({
-    from: `Deductive Security <${fromAddr()}>`,
+    from: {
+      name: 'Deductive Security',
+      address: fromAddr()
+    },
     to,
     subject: '🔐 Reset your Deductive password',
     html: getEmailTemplate(content),
