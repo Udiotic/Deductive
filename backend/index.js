@@ -6,7 +6,6 @@ import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import { connect } from 'mongoose';
 import session from 'express-session';
-import csurf from 'csurf';
 import MongoStore from 'connect-mongo';
 
 import authRouter from './routers/authRouter.js';
@@ -62,17 +61,6 @@ app.use(
   })
 );
 
-// Mount non-CSRF routes that should be public (e.g. static files) before csurf if any
-app.use('/api/uploads', uploadRouter);
-
-// ---------- CSRF (session-based) ----------
-app.use(csurf({ cookie: false }));
-
-// CSRF token endpoint (must come AFTER csurf)
-app.get('/api/auth/csrf-token', (req, res) => {
-  res.json({ csrfToken: req.csrfToken() });
-});
-
 // ---------- App Routes ----------
 app.get('/health', (req, res) => {
   res.status(200).json({ 
@@ -81,19 +69,13 @@ app.get('/health', (req, res) => {
     environment: process.env.NODE_ENV || 'development'
   });
 });
+
+app.use('/api/uploads', uploadRouter);
 app.use('/api/auth', authRouter);
 app.use('/api/questions', questionRouter);
 app.use('/api/admin', adminRouter);
 app.use('/api/profile', profileRouter);
 app.use('/api/users', userRouter);
-
-// ---------- Error Handling ----------
-app.use((err, req, res, next) => {
-  if (err.code === 'EBADCSRFTOKEN') {
-    return res.status(403).json({ message: 'Invalid CSRF token' });
-  }
-  next(err);
-});
 
 // Health
 app.get('/healthz', (req, res) => res.send('ok'));
