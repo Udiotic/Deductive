@@ -12,6 +12,10 @@
     "seed": "node --env-file=.env scripts/seedQuestions.js",
     "seed:drop": "node --env-file=.env scripts/seedQuestions.js --drop"
   },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=8.0.0"
+  },
   "dependencies": {
     "bcrypt": "^6.0.0",
     "cloudinary": "^2.7.0",

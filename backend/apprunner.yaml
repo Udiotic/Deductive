@@ -1,0 +1,17 @@
+# apprunner.yaml
+version: 1.0
+runtime: nodejs18
+build:
+  commands:
+    build:
+      - echo "Build phase - installing deps"
+      - npm install
+run:
+  runtime-version: nodejs18
+  command: npm start
+  network:
+    port: 8000
+    env: PORT
+  env:
+    - name: NODE_ENV
+      value: "production"
