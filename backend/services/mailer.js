@@ -141,7 +141,7 @@ export async function sendVerificationCodeEmail(to, code) {
 
   const t = getTransporter();
   const info = await t.sendMail({
-    from: `"Deductive" <${fromAddr()}>`,
+    from: `Deductive <${fromAddr()}>`,
     to,
     subject: '🧠 Verify your Deductive account',
     html: getEmailTemplate(content),
