@@ -24,13 +24,11 @@ import {
 
 async function postJson(path, body) {
   const API_BASE = import.meta.env.VITE_API_BASE || '';
-  const csrfRes = await fetch(`${API_BASE}/api/auth/csrf-token`, { credentials: 'include' });
-  const { csrfToken } = await csrfRes.json();
 
   const res = await fetch(`${API_BASE}${path}`, {
     method: 'POST',
     credentials: 'include',
-    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
+    headers: { 'Content-Type': 'application/json'},
     body: JSON.stringify(body ?? {}),
   });
   if (!res.ok) {
@@ -43,12 +41,10 @@ async function postJson(path, body) {
 
 async function patchJson(path, body) {
   const API_BASE = import.meta.env.VITE_API_BASE || '';
-  const csrfRes = await fetch(`${API_BASE}/api/auth/csrf-token`, { credentials: 'include' });
-  const { csrfToken } = await csrfRes.json();
   const res = await fetch(`${API_BASE}${path}`, {
     method: 'PATCH',
     credentials: 'include',
-    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
+    headers: { 'Content-Type': 'application/json'},
     body: JSON.stringify(body ?? {}),
   });
   if (!res.ok) {

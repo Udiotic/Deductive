@@ -20,14 +20,11 @@ import {
 // CSRF helper (same as before)
 async function patchJson(path, body) {
   const API_BASE = import.meta.env.VITE_API_BASE || '';
-  const csrfRes = await fetch(`${API_BASE}/api/auth/csrf-token`, { credentials: 'include' });
-  if (!csrfRes.ok) throw new Error('Failed to get CSRF token');
-  const { csrfToken } = await csrfRes.json();
 
   const res = await fetch(`${API_BASE}${path}`, {
     method: 'PATCH',
     credentials: 'include',
-    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
+    headers: { 'Content-Type': 'application/json'},
     body: JSON.stringify(body ?? {}),
   });
   if (!res.ok) {

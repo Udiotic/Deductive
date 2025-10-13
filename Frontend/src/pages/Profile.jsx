@@ -21,8 +21,6 @@ import {
 
 async function patchJson(path, body) {
   const API_BASE = import.meta.env.VITE_API_BASE || '';
-  const csrfRes = await fetch(`${API_BASE}/api/auth/csrf-token`, { credentials: 'include' });
-  const { csrfToken } = await csrfRes.json();
   const res = await fetch(`${API_BASE}${path}`, {
     method: 'PATCH',
     credentials: 'include',

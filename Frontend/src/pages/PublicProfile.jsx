@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { get } from '../lib/api';
+import { get, post } from '../lib/api'; //
 import { 
   User, 
   Users, 
@@ -16,23 +16,6 @@ import {
   UserX
 } from 'lucide-react';
 
-async function withCsrf(method, path, body) {
-  const API_BASE = import.meta.env.VITE_API_BASE || '';
-  const r = await fetch(`${API_BASE}/api/auth/csrf-token`, { credentials: 'include' });
-  const { csrfToken } = await r.json();
-  const res = await fetch(`${API_BASE}${path}`, {
-    method,
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  if (!res.ok) {
-    let msg = 'Request failed';
-    try { const j = await res.json(); if (j?.message) msg = j.message; } catch {}
-    throw new Error(msg);
-  }
-  return res.json();
-}
 
 export default function PublicProfile() {
   const { username } = useParams();
@@ -133,7 +116,17 @@ export default function PublicProfile() {
       const wasFollowing = profile.isFollowing;
       
       if (wasFollowing) {
-        await withCsrf('DELETE', `/api/users/${encodeURIComponent(username)}/follow`);
+        // ✅ Using standard API - DELETE request (we'll need to add delete function)
+        const API_BASE = import.meta.env.VITE_API_BASE || '';
+        const res = await fetch(`${API_BASE}/api/users/${encodeURIComponent(username)}/follow`, {
+          method: 'DELETE',
+          credentials: 'include',
+        });
+        if (!res.ok) {
+          const errorData = await res.json().catch(() => ({}));
+          throw new Error(errorData.message || 'Failed to unfollow');
+        }
+        
         setProfile(p => p ? {
           ...p,
           isFollowing: false,
@@ -141,7 +134,8 @@ export default function PublicProfile() {
         } : p);
         setToast('Unfollowed successfully');
       } else {
-        await withCsrf('POST', `/api/users/${encodeURIComponent(username)}/follow`);
+        // ✅ Using standard post function
+        await post(`/api/users/${encodeURIComponent(username)}/follow`);
         setProfile(p => p ? {
           ...p,
           isFollowing: true,

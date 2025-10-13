@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef } from 'react';
 import Quill from 'quill';
 import DOMPurify from 'dompurify';
-import { postForm } from '../lib/api'; // tumhara helper (credentials + CSRF)
+import { postForm } from '../lib/api'; 
 
 export default function QuillEditor({ value, onChange, placeholder }) {
   const containerRef = useRef(null);
