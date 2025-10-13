@@ -111,38 +111,62 @@ export default function PublicProfile() {
 
 
   async function toggleFollow() {
-  if (!profile || profile.isSelf) return;
+  if (!profile || profile.isSelf || busy) return;
+
+  // ✅ Store original state for potential rollback
+  const originalState = {
+    isFollowing: profile.isFollowing,
+    followersCount: profile.followersCount ?? 0
+  };
+
+  const wasFollowing = profile.isFollowing;
+
   try {
+    // ✅ INSTANTLY update UI (no loading state!)
+    setProfile(p => p ? {
+      ...p,
+      isFollowing: !wasFollowing,
+      followersCount: wasFollowing 
+        ? Math.max(0, (p.followersCount ?? 0) - 1)
+        : (p.followersCount ?? 0) + 1
+    } : p);
+
+    // ✅ Show immediate feedback
+    setToast(wasFollowing ? 'Unfollowed!' : 'Following!');
+    setTimeout(() => setToast(''), 2000);
+
+    // ✅ Set subtle busy state (for preventing double-clicks, but no spinner shown)
     setBusy(true);
-    const wasFollowing = profile.isFollowing;
-    
+
+    // ✅ Background API call (user doesn't see this)
     if (wasFollowing) {
-      // ✅ Use JWT-enabled del function instead of direct fetch
       await del(`/api/users/${encodeURIComponent(username)}/follow`);
-      setProfile(p => p ? {
-        ...p,
-        isFollowing: false,
-        followersCount: Math.max(0, (p.followersCount ?? 0) - 1)
-      } : p);
-      setToast('Unfollowed successfully');
     } else {
-      // ✅ This is already correct
       await post(`/api/users/${encodeURIComponent(username)}/follow`);
-      setProfile(p => p ? {
-        ...p,
-        isFollowing: true,
-        followersCount: (p.followersCount ?? 0) + 1
-      } : p);
-      setToast('Following successfully');
     }
-    
+
+    // ✅ Success - keep the optimistic update
+    console.log('✅ Follow/unfollow confirmed by server');
+
+  } catch (error) {
+    console.error('❌ Follow/unfollow failed:', error);
+
+    // ✅ ROLLBACK - revert to original state
+    setProfile(p => p ? {
+      ...p,
+      isFollowing: originalState.isFollowing,
+      followersCount: originalState.followersCount
+    } : p);
+
+    // ✅ Show error feedback
+    setToast(`Failed to ${wasFollowing ? 'unfollow' : 'follow'}. Please try again.`);
     setTimeout(() => setToast(''), 3000);
-  } catch (e) {
-    alert(e?.message || 'Action failed');
+
   } finally {
     setBusy(false);
   }
 }
+
 
   if (loading) {
     return (

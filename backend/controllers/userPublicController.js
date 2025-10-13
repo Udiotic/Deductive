@@ -13,17 +13,11 @@ export async function getPublicProfile(req, res) {
 
     // ✅ Debug the viewer
     const viewerId = req.user?.userId;
-    console.log('🔍 getPublicProfile Debug:');
-    console.log('- Username:', uname);
-    console.log('- Target user:', user._id.toString());
-    console.log('- Viewer ID (raw):', viewerId);
-    console.log('- Viewer ID type:', typeof viewerId);
 
     let viewerObjectId = null;
     if (viewerId) {
       try {
         viewerObjectId = new mongoose.Types.ObjectId(viewerId);
-        console.log('- Viewer ObjectId:', viewerObjectId.toString());
       } catch (e) {
         console.log('❌ Invalid viewerId format:', viewerId, e.message);
       }
@@ -32,9 +26,7 @@ export async function getPublicProfile(req, res) {
     // ✅ Debug the follow check with multiple query attempts
     let isFollowing = false;
     if (viewerObjectId && !viewerObjectId.equals(user._id)) {
-      console.log('🔍 Checking if following...');
       
-      // Try multiple query formats to see which one works
       const queries = [
         { follower: viewerObjectId, followee: user._id },
         { follower: viewerId, followee: user._id },
@@ -42,19 +34,7 @@ export async function getPublicProfile(req, res) {
         { follower: viewerId, followee: user._id.toString() }
       ];
 
-      for (let i = 0; i < queries.length; i++) {
-        const query = queries[i];
-        console.log(`- Query ${i + 1}:`, query);
-        
-        const result = await Follow.exists(query);
-        console.log(`- Result ${i + 1}:`, result);
-        
-        if (result && !isFollowing) {
-          isFollowing = true;
-          console.log(`✅ Found follow relationship with query ${i + 1}`);
-          break;
-        }
-      }
+      
 
       // Also check what follows actually exist for this viewer
       const allFollows = await Follow.find({ follower: viewerObjectId }).lean();
