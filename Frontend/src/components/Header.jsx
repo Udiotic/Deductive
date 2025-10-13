@@ -1,6 +1,6 @@
 import { Link, useNavigate } from 'react-router-dom'
 import { Brain, User, ChevronDown, LogOut, Settings, Play, PlusCircle, Loader2 } from 'lucide-react'
-import { useState, useRef, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import { useAuth } from '../context/AuthContext'
 
 export default function Header() {
@@ -9,24 +9,19 @@ export default function Header() {
   const [toast, setToast] = useState('')
   const [isLoggingOut, setIsLoggingOut] = useState(false)
   const navigate = useNavigate()
-  const profileRef = useRef(null)
 
-  // ✅ Mobile-friendly click outside handler (pointerdown covers mouse + touch)
+  // Outside click: ignore any tap inside elements marked with data-profile-root
   useEffect(() => {
-    const handlePointerDown = (event) => {
-      if (profileRef.current && !profileRef.current.contains(event.target)) {
-        setIsProfileOpen(false)
-      }
+    const handlePointerDown = (e) => {
+      if (e.target.closest('[data-profile-root]')) return
+      setIsProfileOpen(false)
     }
-
     document.addEventListener('pointerdown', handlePointerDown, { passive: true })
-    return () => {
-      document.removeEventListener('pointerdown', handlePointerDown)
-    }
+    return () => document.removeEventListener('pointerdown', handlePointerDown)
   }, [])
 
-  // ✅ Profile toggle (no preventDefault needed on a button)
   const toggleProfile = (e) => {
+    // no preventDefault; only stop bubbling if needed
     e.stopPropagation()
     setIsProfileOpen((prev) => !prev)
   }
@@ -48,7 +43,6 @@ export default function Header() {
     }
   }
 
-  // ✅ Mobile-friendly link handler (used for some buttons)
   const handleLinkClick = (path) => {
     setIsProfileOpen(false)
     navigate(path)
@@ -60,7 +54,7 @@ export default function Header() {
       {toast && (
         <div className="fixed top-6 right-6 z-[60] animate-in slide-in-from-right duration-300">
           <div className="bg-emerald-500 text-white px-6 py-3 rounded-2xl shadow-lg flex items-center gap-2">
-            <div className="w-2 h-2 bg-white rounded-full"></div>
+            <div className="w-2 h-2 bg-white rounded-full" />
             <span className="font-medium text-sm">{toast}</span>
           </div>
         </div>
@@ -69,6 +63,7 @@ export default function Header() {
       <header className="bg-white/80 backdrop-blur-xl border-b border-gray-200/50 sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-6">
           <div className="flex items-center justify-between h-16">
+
             {/* Logo */}
             <Link
               to="/"
@@ -110,7 +105,7 @@ export default function Header() {
               {user ? (
                 <>
                   {/* Desktop Profile Menu */}
-                  <div className="hidden md:block relative" ref={profileRef}>
+                  <div className="hidden md:block relative" data-profile-root>
                     <button
                       type="button"
                       onClick={toggleProfile}
@@ -138,7 +133,10 @@ export default function Header() {
 
                     {/* Dropdown */}
                     {isProfileOpen && (
-                      <div className="absolute right-0 mt-3 w-64 bg-white/95 backdrop-blur-xl rounded-3xl shadow-2xl border border-white/20 py-2 animate-in slide-in-from-top-2 fade-in duration-200 z-[60]">
+                      <div
+                        data-profile-root
+                        className="absolute right-0 mt-3 w-64 bg-white/95 backdrop-blur-xl rounded-3xl shadow-2xl border border-white/20 py-2 animate-in slide-in-from-top-2 fade-in duration-200 z-[60]"
+                      >
                         {/* User Info Header */}
                         <div className="px-6 py-4 border-b border-gray-100/50">
                           <div className="flex items-center gap-3">
@@ -202,7 +200,7 @@ export default function Header() {
                             </span>
 
                             {isLoggingOut && (
-                              <div className="absolute inset-0 bg-gradient-to-r from-red-50/0 via-red-50/50 to-red-50/0 animate-pulse"></div>
+                              <div className="absolute inset-0 bg-gradient-to-r from-red-50/0 via-red-50/50 to-red-50/0 animate-pulse" />
                             )}
                           </button>
                         </div>
@@ -211,7 +209,7 @@ export default function Header() {
                   </div>
 
                   {/* Mobile Profile Button */}
-                  <div className="md:hidden">
+                  <div className="md:hidden" data-profile-root>
                     <button
                       type="button"
                       onClick={toggleProfile}
@@ -236,10 +234,7 @@ export default function Header() {
                   >
                     Sign In
                   </Link>
-                  <Link
-                    to="/signup"
-                    style={{ WebkitTapHighlightColor: 'transparent' }}
-                  >
+                  <Link to="/signup" style={{ WebkitTapHighlightColor: 'transparent' }}>
                     <div className="px-6 py-2.5 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-2xl font-semibold text-sm hover:from-indigo-700 hover:to-purple-700 hover:scale-105 transition-all duration-200 shadow-lg hover:shadow-xl">
                       Get Started
                     </div>
@@ -251,7 +246,10 @@ export default function Header() {
 
           {/* Mobile Navigation */}
           {user && isProfileOpen && (
-            <div className="md:hidden border-t border-gray-100/50 bg-white/50 backdrop-blur-sm">
+            <div
+              className="md:hidden border-t border-gray-100/50 bg-white/50 backdrop-blur-sm"
+              data-profile-root
+            >
               <div className="py-4 space-y-1">
                 {/* User Info */}
                 <div className="px-4 py-3 border-b border-gray-100/50 mb-3">
@@ -268,15 +266,12 @@ export default function Header() {
                   </div>
                 </div>
 
-                {/* Navigation Links - ✅ Mobile optimized */}
+                {/* Navigation Links - Mobile */}
                 <Link
                   to="/play"
                   onClick={() => setIsProfileOpen(false)}
                   className="flex items-center gap-3 px-4 py-3 text-sm font-medium text-gray-700 active:bg-indigo-50/80 active:text-indigo-600 transition-all duration-200 rounded-2xl mx-2 w-full text-left cursor-pointer"
-                  style={{
-                    WebkitTapHighlightColor: 'transparent',
-                    touchAction: 'manipulation'
-                  }}
+                  style={{ WebkitTapHighlightColor: 'transparent', touchAction: 'manipulation' }}
                 >
                   <Play size={18} />
                   <span>Play</span>
@@ -286,10 +281,7 @@ export default function Header() {
                   to="/editor-test"
                   onClick={() => setIsProfileOpen(false)}
                   className="flex items-center gap-3 px-4 py-3 text-sm font-medium text-gray-700 active:bg-purple-50/80 active:text-purple-600 transition-all duration-200 rounded-2xl mx-2 w-full text-left cursor-pointer"
-                  style={{
-                    WebkitTapHighlightColor: 'transparent',
-                    touchAction: 'manipulation'
-                  }}
+                  style={{ WebkitTapHighlightColor: 'transparent', touchAction: 'manipulation' }}
                 >
                   <PlusCircle size={18} />
                   <span>Create</span>
@@ -299,10 +291,7 @@ export default function Header() {
                   to="/profile"
                   onClick={() => setIsProfileOpen(false)}
                   className="flex items-center gap-3 px-4 py-3 text-sm font-medium text-gray-700 active:bg-gray-50/80 active:text-gray-900 transition-all duration-200 rounded-2xl mx-2 w-full text-left cursor-pointer"
-                  style={{
-                    WebkitTapHighlightColor: 'transparent',
-                    touchAction: 'manipulation'
-                  }}
+                  style={{ WebkitTapHighlightColor: 'transparent', touchAction: 'manipulation' }}
                 >
                   <User size={18} />
                   <span>Profile</span>
@@ -312,11 +301,8 @@ export default function Header() {
                   <Link
                     to="/admin/review"
                     onClick={() => setIsProfileOpen(false)}
-                    className="flex items-center gap-3 px-4 py-3 text-sm font-medium text-gray-700 active:bg-gray-50/80 active:text-gray-900 transition-all duration-200 rounded-2xl mx-2 w-full text-left cursor-pointer"
-                    style={{
-                      WebkitTapHighlightColor: 'transparent',
-                      touchAction: 'manipulation'
-                    }}
+                    className="flex items-center gap-3 px-4 py-3 text-sm font-medium text-gray-700 active:bg-gray-50/80 transition-all duration-200 rounded-2xl mx-2 w-full text-left cursor-pointer"
+                    style={{ WebkitTapHighlightColor: 'transparent', touchAction: 'manipulation' }}
                   >
                     <Settings size={18} />
                     <span>Admin Panel</span>
@@ -330,23 +316,18 @@ export default function Header() {
                     onClick={handleLogout}
                     disabled={isLoggingOut}
                     className="flex items-center gap-3 px-4 py-3 text-sm font-medium text-red-600 active:bg-red-50/80 transition-all duration-200 rounded-2xl mx-2 w-full text-left cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed group relative overflow-hidden"
-                    style={{
-                      WebkitTapHighlightColor: 'transparent',
-                      touchAction: 'manipulation'
-                    }}
+                    style={{ WebkitTapHighlightColor: 'transparent', touchAction: 'manipulation' }}
                   >
                     {isLoggingOut ? (
                       <Loader2 size={18} className="animate-spin text-red-500" />
                     ) : (
                       <LogOut size={18} className="group-hover:scale-110 transition-transform duration-200" />
                     )}
-
                     <span className={`transition-all duration-200 ${isLoggingOut ? 'text-red-500' : ''}`}>
                       {isLoggingOut ? 'Signing Out...' : 'Sign Out'}
                     </span>
-
                     {isLoggingOut && (
-                      <div className="absolute inset-0 bg-gradient-to-r from-red-50/0 via-red-50/50 to-red-50/0 animate-pulse"></div>
+                      <div className="absolute inset-0 bg-gradient-to-r from-red-50/0 via-red-50/50 to-red-50/0 animate-pulse" />
                     )}
                   </button>
                 </div>
