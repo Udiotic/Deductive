@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState } from 'react';
-import { get, post } from '../lib/api';
+import { get, post, getToken, setToken } from '../lib/api';
 
 const AuthCtx = createContext(null);
 
@@ -7,14 +7,23 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [booted, setBooted] = useState(false);
 
-  // On app boot: try session user
   useEffect(() => {
     (async () => {
       try {
-        const me = await get('/api/auth/me'); // 200 if logged in
-        setUser(me);
-      } catch {
-        setUser(null); // 401 is fine
+        const token = getToken();
+        if (token) {
+        
+          const me = await get('/api/auth/me');
+          setUser(me);
+        } else {
+    
+          setUser(null);
+        }
+      } catch (error) {
+    
+        console.log('Token validation failed:', error.message);
+        setToken(null);
+        setUser(null);
       } finally {
         setBooted(true);
       }
@@ -28,21 +37,29 @@ export function AuthProvider({ children }) {
 
   const login = async ({ email, username, password }) => {
     try {
+ 
       const result = await post('/api/auth/login', { email, username, password });
-      // Only call /me if login was successful
+      
+ 
       const me = await get('/api/auth/me');
       setUser(me);
       return me;
     } catch (error) {
-      // Don't call /me if login failed, just rethrow the error
+    
       throw error;
     }
   };
 
   const logout = async () => {
     try {
+  
       await post('/api/auth/logout', {});
+    } catch (error) {
+  
+      console.log('Logout request failed:', error.message);
     } finally {
+
+      setToken(null);
       setUser(null);
     }
   };
@@ -52,6 +69,7 @@ export function AuthProvider({ children }) {
       const response = await get('/api/auth/me');
       setUser(response);
     } catch (error) {
+      setToken(null);
       setUser(null);
     }
   };

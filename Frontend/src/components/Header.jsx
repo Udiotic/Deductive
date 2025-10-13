@@ -1,13 +1,13 @@
 import { Link, useNavigate } from 'react-router-dom'
-import { Brain, User, ChevronDown, LogOut, Settings, Play, PlusCircle } from 'lucide-react'
+import { Brain, User, ChevronDown, LogOut, Settings, Play, PlusCircle, Loader2 } from 'lucide-react'
 import { useState, useRef, useEffect } from 'react'
 import { useAuth } from '../context/AuthContext'
-
 
 export default function Header() {
   const { user, logout } = useAuth()
   const [isProfileOpen, setIsProfileOpen] = useState(false)
   const [toast, setToast] = useState('')
+  const [isLoggingOut, setIsLoggingOut] = useState(false)
   const navigate = useNavigate()
   const profileRef = useRef(null)
 
@@ -24,6 +24,7 @@ export default function Header() {
 
   const handleLogout = async () => {
     try {
+      setIsLoggingOut(true) // ✅ Start loading
       await logout()
       setToast('Signed out successfully')
       setTimeout(() => setToast(''), 3000)
@@ -33,6 +34,8 @@ export default function Header() {
       console.error('Logout failed:', error)
       setToast('Sign out failed')
       setTimeout(() => setToast(''), 3000)
+    } finally {
+      setIsLoggingOut(false) // ✅ End loading
     }
   }
 
@@ -152,14 +155,29 @@ export default function Header() {
                           )}
                         </div>
 
-                        {/* Logout */}
+                        {/* Logout - Desktop */}
                         <div className="border-t border-gray-100/50 pt-2 pb-2">
                           <button
                             onClick={handleLogout}
-                            className="flex items-center gap-3 px-6 py-3 text-sm font-medium text-red-600 hover:bg-red-50/80 transition-all duration-200 w-full text-left"
+                            disabled={isLoggingOut}
+                            className="flex items-center gap-3 px-6 py-3 text-sm font-medium text-red-600 hover:bg-red-50/80 transition-all duration-200 w-full text-left cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed group relative overflow-hidden"
                           >
-                            <LogOut size={18} />
-                            <span>Sign Out</span>
+                            {/* ✅ Loading spinner */}
+                            {isLoggingOut ? (
+                              <Loader2 size={18} className="animate-spin text-red-500" />
+                            ) : (
+                              <LogOut size={18} className="group-hover:scale-110 transition-transform duration-200" />
+                            )}
+                            
+                            {/* ✅ Dynamic text */}
+                            <span className={`transition-all duration-200 ${isLoggingOut ? 'text-red-500' : ''}`}>
+                              {isLoggingOut ? 'Signing Out...' : 'Sign Out'}
+                            </span>
+                            
+                            {/* ✅ Loading background animation */}
+                            {isLoggingOut && (
+                              <div className="absolute inset-0 bg-gradient-to-r from-red-50/0 via-red-50/50 to-red-50/0 animate-pulse"></div>
+                            )}
                           </button>
                         </div>
                       </div>
@@ -254,17 +272,32 @@ export default function Header() {
                   </Link>
                 )}
 
-                {/* Logout */}
+                {/* Logout - Mobile */}
                 <div className="border-t border-gray-100/50 mt-3 pt-3">
                   <button
                     onClick={() => {
                       handleLogout()
                       setIsProfileOpen(false)
                     }}
-                    className="flex items-center gap-3 px-4 py-3 text-sm font-medium text-red-600 hover:bg-red-50/80 transition-all duration-200 rounded-2xl mx-2 w-full text-left"
+                    disabled={isLoggingOut}
+                    className="flex items-center gap-3 px-4 py-3 text-sm font-medium text-red-600 hover:bg-red-50/80 transition-all duration-200 rounded-2xl mx-2 w-full text-left cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed group relative overflow-hidden"
                   >
-                    <LogOut size={18} />
-                    <span>Sign Out</span>
+                    {/* ✅ Loading spinner */}
+                    {isLoggingOut ? (
+                      <Loader2 size={18} className="animate-spin text-red-500" />
+                    ) : (
+                      <LogOut size={18} className="group-hover:scale-110 transition-transform duration-200" />
+                    )}
+                    
+                    {/* ✅ Dynamic text */}
+                    <span className={`transition-all duration-200 ${isLoggingOut ? 'text-red-500' : ''}`}>
+                      {isLoggingOut ? 'Signing Out...' : 'Sign Out'}
+                    </span>
+                    
+                    {/* ✅ Loading background animation */}
+                    {isLoggingOut && (
+                      <div className="absolute inset-0 bg-gradient-to-r from-red-50/0 via-red-50/50 to-red-50/0 animate-pulse"></div>
+                    )}
                   </button>
                 </div>
               </div>

@@ -1,16 +1,24 @@
-// routers/questionRouter.js
+// routers/questionRouter.js - ✅ CORRECT ORDER
 import { Router } from 'express';
 import { getRandomQuestion, getQuestionById, submitQuestion, adminUpdateQuestion, listMySubmissions } from '../controllers/questionController.js';
-import { requireAuth, requireRole } from '../middlewares/authz.js';
+import { authenticateToken } from '../controllers/authController.js'; 
+import { requireRole } from '../middlewares/authz.js'; 
 
 const router = Router();
 
-// public endpoints
-router.get('/random', requireAuth, getRandomQuestion);
-router.get('/mine', requireAuth, listMySubmissions);
-router.get('/:id', requireAuth, getQuestionById);
-router.post('/submit', requireAuth, submitQuestion);
-router.patch('/:id', requireRole('admin'), adminUpdateQuestion);
+// ✅ Specific routes FIRST
+router.get('/random', getRandomQuestion);      
+router.get('/mine', authenticateToken, listMySubmissions); // ✅ Move this UP
+router.post('/submit', authenticateToken, submitQuestion);      
 
+// ✅ Generic/parameterized routes LAST  
+router.get('/:id', getQuestionById);           // ✅ Move this DOWN
+
+// ✅ Admin endpoints
+router.patch('/:id', 
+  authenticateToken,           
+  requireRole('admin'),        
+  adminUpdateQuestion
+);
 
 export default router;

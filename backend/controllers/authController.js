@@ -1,4 +1,5 @@
 import bcrypt from 'bcrypt';
+import jwt from 'jsonwebtoken';
 import User from '../models/userModel.js'
 import crypto from 'crypto'
 import { sendVerificationCodeEmail, sendPasswordResetEmail } from '../services/mailer.js';
@@ -8,14 +9,38 @@ const CODE_TTL_MS = 15 * 60 * 1000; // 15 min
 const RESEND_COOLDOWN_MS = 60 * 1000; // 60s
 const MAX_VERIFY_ATTEMPTS = 5;
 
-function make6Code() 
-{
+function make6Code() {
   return String(Math.floor(100000 + Math.random() * 900000));
 }
-function sha256(s) 
-{
+
+function sha256(s) {
   return crypto.createHash('sha256').update(s).digest('hex');
 }
+
+// JWT Helper Functions
+function generateToken(userId) {
+  return jwt.sign(
+    { userId: userId.toString() }, 
+    process.env.SESSION_SECRET, 
+    { expiresIn: '7d' }
+  );
+}
+
+function verifyToken(token) {
+  try {
+    console.log('🔍 Verifying JWT token...');
+    console.log('🔍 Token:', token.substring(0, 20) + '...');
+    console.log('🔍 SESSION_SECRET exists:', !!process.env.SESSION_SECRET);
+    
+    const decoded = jwt.verify(token, process.env.SESSION_SECRET);
+    console.log('🔍 JWT verified successfully:', decoded);
+    return decoded;
+  } catch (error) {
+    console.log('🔍 JWT verification failed:', error.message);
+    return null;
+  }
+}
+
 
 export const signup = async (req, res) => {
   const { email, password, username } = req.body;
@@ -48,7 +73,7 @@ export const signup = async (req, res) => {
 
       // issue new code
       const raw = make6Code();
-      byEmail.verifyCodeRaw = raw; // ← ADD THIS LINE
+      byEmail.verifyCodeRaw = raw;
       byEmail.verifyCodeHash = sha256(raw);
       byEmail.verifyCodeExpires = new Date(now + CODE_TTL_MS);
       byEmail.verifyCodeLastSent = new Date(now);
@@ -59,7 +84,7 @@ export const signup = async (req, res) => {
       return res.status(200).json({ message: 'Verification code sent. Check your inbox.' });
     }
 
-    // fresh create - this part is already correct
+    // fresh create
     const passwordHash = await bcrypt.hash(password, 12);
     const raw = make6Code();
     const user = await User.create({
@@ -67,7 +92,7 @@ export const signup = async (req, res) => {
       username,
       passwordHash,
       verified: false,
-      verifyCodeRaw: raw, // ← This is already there
+      verifyCodeRaw: raw,
       verifyCodeHash: sha256(raw),
       verifyCodeExpires: new Date(Date.now() + CODE_TTL_MS),
       verifyCodeLastSent: new Date(),
@@ -108,13 +133,12 @@ export const verifyEmailCode = async (req, res) => {
       return res.status(400).json({ message: 'Too many attempts. Request a new code.' });
     }
 
-    // Compare the code - make sure both are strings
+    // Compare the code
     const inputCode = String(code).trim();
     const storedHash = user.verifyCodeHash;
     const isMatch = storedHash === sha256(inputCode);
 
     if (!isMatch) {
-      // Increment attempts
       user.verifyCodeAttempts = (user.verifyCodeAttempts || 0) + 1;
       await user.save();
       return res.status(400).json({ message: 'Invalid verification code' });
@@ -129,12 +153,12 @@ export const verifyEmailCode = async (req, res) => {
     user.verifyCodeLastSent = undefined;
     await user.save();
 
-    // Create session
-    req.session.userId = user._id;
+    // ✅ Generate JWT token instead of session
+    const token = generateToken(user._id);
 
-    // Return success with proper structure
     return res.json({
-      ok: true, // ← Make sure this is included
+      ok: true,
+      token, // ✅ Return JWT token
       user: {
         id: user._id,
         email: user.email,
@@ -150,8 +174,6 @@ export const verifyEmailCode = async (req, res) => {
     return res.status(500).json({ message: 'Server error' });
   }
 };
-
-
 
 export const resendVerifyCode = async (req, res) => {
   const { email } = req.body;
@@ -169,7 +191,7 @@ export const resendVerifyCode = async (req, res) => {
     }
 
     const raw = make6Code();
-    user.verifyCodeRaw = raw; // ← ADD THIS LINE
+    user.verifyCodeRaw = raw;
     user.verifyCodeHash = sha256(raw);
     user.verifyCodeExpires = new Date(now + CODE_TTL_MS);
     user.verifyCodeLastSent = new Date(now);
@@ -183,7 +205,6 @@ export const resendVerifyCode = async (req, res) => {
     return res.status(500).json({ message: 'Server error' });
   }
 };
-
 
 export const login = async (req, res) => {
   const { email, username, password } = req.body;
@@ -220,7 +241,6 @@ export const login = async (req, res) => {
           console.error('Resend existing code failed:', e);
         }
         
-        // ← IMPORTANT: Return error with proper structure for frontend redirect
         return res.status(403).json({
           message: 'Please verify your email. We resent your code.',
           needVerification: true,
@@ -252,7 +272,6 @@ export const login = async (req, res) => {
         console.error('Send new code failed:', e);
       }
 
-      // ← IMPORTANT: Return error with proper structure for frontend redirect
       return res.status(403).json({
         message: 'Please verify your email. We sent you a new code.',
         needVerification: true,
@@ -260,10 +279,11 @@ export const login = async (req, res) => {
       });
     }
 
-    // User is verified - proceed with login
-    req.session.userId = user._id;
+    // ✅ User is verified - generate JWT token
+    const token = generateToken(user._id);
 
     return res.json({
+      token, // ✅ Return JWT token
       id: user._id,
       email: user.email,
       username: user.username,
@@ -277,17 +297,13 @@ export const login = async (req, res) => {
   }
 };
 
-
-
 export const requestPasswordReset = async (req, res) => {
   const { email } = req.body;
   if (!email) return res.status(400).json({ message: 'Email is Required!' });
 
   try {
-    // Only read the fields we need
     const user = await User.findOne({ email }).select('email resetTokenHash resetExpiresAt');
 
-    // Generic 200 if user not found (no enumeration)
     if (!user) {
       return res.status(200).json({ message: 'If that email exists, a reset link has been sent.' });
     }
@@ -296,18 +312,14 @@ export const requestPasswordReset = async (req, res) => {
     const TTL_MS = 15 * 60 * 1000;  // 15 minutes
     const THROTTLE_MS = 60 * 1000;  // 60s cooldown
 
-    // Optional throttle WITHOUT adding a new DB field:
-    // If a token already exists and expires far in the future,
-    // we can infer it was recently issued (within ~THROTTLE_MS)
     if (user.resetExpiresAt instanceof Date) {
       const remain = user.resetExpiresAt.getTime() - now;
-      // If remain > (TTL - THROTTLE) => issued in last ~60s -> skip re-issuing
       if (remain > (TTL_MS - THROTTLE_MS)) {
         return res.status(200).json({ message: 'If that email exists, a reset link has been sent.' });
       }
     }
 
-    // Issue (or re-issue) a fresh token
+    // Issue fresh token
     const raw = crypto.randomBytes(32).toString('hex');
     user.resetTokenHash = crypto.createHash('sha256').update(raw).digest('hex');
     user.resetExpiresAt = new Date(now + TTL_MS);
@@ -318,7 +330,6 @@ export const requestPasswordReset = async (req, res) => {
       await sendPasswordResetEmail(user.email, link);
     } catch (e) {
       console.error('Failed to send password reset mail:', e);
-      // We still return 200 to avoid leaking existence
     }
 
     return res.status(200).json({ message: 'If that email exists, a reset link has been sent.' });
@@ -331,7 +342,6 @@ export const requestPasswordReset = async (req, res) => {
 export const resetPassword = async (req, res) => {
   const { token, password } = req.body;
 
-
   if (!token || !password) {
     return res.status(400).json({ message: 'Token and new password required' });
   }
@@ -340,12 +350,11 @@ export const resetPassword = async (req, res) => {
   }
 
   try {
-
     const hash = crypto.createHash('sha256').update(token).digest('hex');
 
     const user = await User.findOne({
       resetTokenHash: hash,
-      resetExpiresAt: { $gt: new Date() }, // not expired
+      resetExpiresAt: { $gt: new Date() },
     }).select('_id resetTokenHash');
 
     if (!user) {
@@ -357,9 +366,6 @@ export const resetPassword = async (req, res) => {
     user.resetExpiresAt = undefined;
     await user.save();
 
-    
-    //Add logic to destroy sessions by userId in your session store
-
     return res.json({ ok: true, message: 'Password has been reset. You can log in now.' });
   } catch (err) {
     console.error(err);
@@ -367,39 +373,26 @@ export const resetPassword = async (req, res) => {
   }
 };
 
+// ✅ Logout is now simple - just tell frontend to remove token
 export const logout = async(req, res) => {
-    req.session.destroy(err => {
-        if(err){
-            console.error("Session destroy error:", err)
-            return res.status(500).json({message: "Could not log out"})
-        }
-
-        res.clearCookie('sid', {
-            httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
-            sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
-        })
-        
-        return res.json({message: "ok: true"})
-    })
+  // With JWT, logout is handled on frontend by removing token
+  // No server-side action needed
+  return res.json({ message: "Logged out successfully" });
 }
 
+// ✅ JWT-based /me endpoint
 export const me = async(req, res) => {
   try {
-    const userId = req.session.userId;
+    // Get user ID from JWT token (set by middleware)
+    const userId = req.user?.userId;
     if (!userId) return res.status(401).json({message: "Not Authenticated"});
     
-    // Add ObjectId validation
     if (!mongoose.isValidObjectId(userId)) {
-      // Clear invalid session
-      req.session.destroy(() => {});
       return res.status(401).json({message: "Not Authenticated"});
     }
     
     const user = await User.findById(userId).select('_id email username verified createdAt role');
     if (!user) {
-      // Clear session if user doesn't exist
-      req.session.destroy(() => {});
       return res.status(401).json({message: "Not Authenticated"});
     }
 
@@ -418,5 +411,27 @@ export const me = async(req, res) => {
   }
 };
 
+//JWT middleware for protecting routes
+export const authenticateToken = (req, res, next) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
 
+  console.log('🔍 authenticateToken called');
+  console.log('🔍 Auth header:', authHeader ? 'Present' : 'Missing');
+  console.log('🔍 Token extracted:', token ? 'Yes' : 'No');
 
+  if (!token) {
+    console.log('❌ No token provided');
+    return res.status(401).json({ message: 'Access token required' });
+  }
+
+  const decoded = verifyToken(token);
+  if (!decoded) {
+    console.log('❌ Token verification failed');
+    return res.status(401).json({ message: 'Invalid or expired token' });
+  }
+
+  console.log('✅ Token verified, setting req.user:', decoded);
+  req.user = decoded; // { userId: "..." }
+  next();
+};

@@ -2,29 +2,24 @@
 import { Router } from 'express';
 import multer from 'multer';
 import cloudinary from '../services/cloudinary.js';
+import { authenticateToken } from '../controllers/authController.js';
 
 const router = Router();
 
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024 },
-  // accept any image/* (HEIC/AVIF etc). Cloudinary usually handles them.
+  // accepts any image/* (HEIC/AVIF etc)
   fileFilter(_req, file, cb) {
     const ok = /^image\/[-+.\w]+$/.test(file.mimetype || '');
     cb(null, ok); // ok=false => req.file null, but no thrown error
   },
 });
 
-function requireAuth(req, res, next) {
-  if (!req.session?.userId) return res.status(401).json({ message: 'Auth required' });
-  next();
-}
-
 router.post(
   '/image',
-  requireAuth,                 // turn ON (works with proxy)
+  authenticateToken,          
   (req, res, next) => {
-    // quick visibility
     // console.log('CT:', req.headers['content-type']);
     next();
   },

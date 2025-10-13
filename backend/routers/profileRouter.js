@@ -1,14 +1,11 @@
+// routers/profileRouter.js
 import { Router } from 'express';
 import { getProfile, updateProfile } from '../controllers/profileController.js';
+import { authenticateToken } from '../controllers/authController.js';
 
 const router = Router();
 
-function requireAuth(req, res, next) {
-  if (!req.session?.userId) return res.status(401).json({ message: 'Auth required' });
-  next();
-}
-
-router.get('/', requireAuth, getProfile);
-router.patch('/', requireAuth, updateProfile);
+router.get('/', authenticateToken, getProfile);
+router.patch('/', authenticateToken, updateProfile);
 
 export default router;

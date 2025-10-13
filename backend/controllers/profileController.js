@@ -2,11 +2,12 @@ import User from '../models/userModel.js';
 
 export async function getProfile(req, res) {
   try {
-    if (!req.session.userId) {
+    const userId = req.user?.userId;
+    if (!userId) {
       return res.status(401).json({ message: 'Not authenticated' });
     }
 
-    const u = await User.findById(req.session.userId)
+    const u = await User.findById(userId)
       .select('_id email username role avatar verified createdAt');
     
     if (!u) return res.status(401).json({ message: 'Not authenticated' });
@@ -28,7 +29,8 @@ export async function getProfile(req, res) {
 
 export async function updateProfile(req, res) {
   try {
-    if (!req.session.userId) {
+    const userId = req.user?.userId;
+    if (!userId) {
       return res.status(401).json({ message: 'Not authenticated' });
     }
 
@@ -40,7 +42,7 @@ export async function updateProfile(req, res) {
     }
 
     const u = await User.findByIdAndUpdate(
-      req.session.userId,
+      userId, 
       { $set: { ...(avatar ? { avatar } : {}) } },
       { new: true }
     ).select('_id email username role avatar verified createdAt');

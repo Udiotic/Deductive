@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import DOMPurify from 'dompurify';
 import QuillEditor from '../components/QuillEditor';
-import { get } from '../lib/api';
+import { get, post, patch } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import { 
   Shield, 
@@ -21,39 +21,6 @@ import {
   Save,
   RefreshCw
 } from 'lucide-react';
-
-async function postJson(path, body) {
-  const API_BASE = import.meta.env.VITE_API_BASE || '';
-
-  const res = await fetch(`${API_BASE}${path}`, {
-    method: 'POST',
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json'},
-    body: JSON.stringify(body ?? {}),
-  });
-  if (!res.ok) {
-    let msg = 'Request failed';
-    try { const j = await res.json(); if (j?.message) msg = j.message; } catch {}
-    throw new Error(msg);
-  }
-  return res.json();
-}
-
-async function patchJson(path, body) {
-  const API_BASE = import.meta.env.VITE_API_BASE || '';
-  const res = await fetch(`${API_BASE}${path}`, {
-    method: 'PATCH',
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json'},
-    body: JSON.stringify(body ?? {}),
-  });
-  if (!res.ok) {
-    let msg = 'Update failed';
-    try { const j = await res.json(); if (j?.message) msg = j.message; } catch {}
-    throw new Error(msg);
-  }
-  return res.json();
-}
 
 export default function AdminReview() {
   const { user } = useAuth();
@@ -148,7 +115,7 @@ export default function AdminReview() {
     if (!current) return;
     try {
       setSaving(true);
-      await patchJson(`/api/questions/${current._id || current.id}`, {
+      await patch(`/api/questions/${current._id || current.id}`, { // ✅ JWT-enabled patch
         bodyHtml: editBodyHtml,
         answerHtml: editAnswerHtml,
         answerOneLiner: editOneLiner,
@@ -172,7 +139,7 @@ export default function AdminReview() {
     if (!current) return;
     setApproving(true);
     try {
-      await postJson(`/api/admin/questions/${current._id || current.id}/approve`);
+      await post(`/api/admin/questions/${current._id || current.id}/approve`); // ✅ JWT-enabled post
       setItems((prev) => prev.filter(it => String(it._id||it.id) !== String(current._id||current.id)));
       setCurrent(null);
       setReveal(null);
@@ -192,7 +159,7 @@ export default function AdminReview() {
     
     setRejecting(true);
     try {
-      await postJson(`/api/admin/questions/${current._id || current.id}/reject`, { reason });
+      await post(`/api/admin/questions/${current._id || current.id}/reject`, { reason }); // ✅ JWT-enabled post
       setItems((prev) => prev.filter(it => String(it._id||it.id) !== String(current._id||current.id)));
       setCurrent(null);
       setReveal(null);

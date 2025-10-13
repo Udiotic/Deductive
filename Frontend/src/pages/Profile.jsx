@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { get } from '../lib/api';
+import { get, patch} from '../lib/api';
+
 import { 
   User, 
   Users, 
@@ -19,21 +20,6 @@ import {
   X
 } from 'lucide-react';
 
-async function patchJson(path, body) {
-  const API_BASE = import.meta.env.VITE_API_BASE || '';
-  const res = await fetch(`${API_BASE}${path}`, {
-    method: 'PATCH',
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
-    body: JSON.stringify(body ?? {}),
-  });
-  if (!res.ok) {
-    let msg = 'Update failed';
-    try { const j = await res.json(); if (j?.message) msg = j.message; } catch {}
-    throw new Error(msg);
-  }
-  return res.json();
-}
 
 const AVATARS = [
   { key: 'robot', url: 'https://api.dicebear.com/9.x/bottts/svg?seed=deductive', name: 'Robot' },
@@ -82,6 +68,14 @@ export default function Profile() {
 
   // Load profile data
   useEffect(() => {
+    const token = localStorage.getItem('authToken');
+  if (token) {
+    try {
+      // Decode JWT to see what's inside (without verification)
+      const payload = JSON.parse(atob(token.split('.')[1]));
+    } catch (e) {
+      console.log('🔍 Invalid JWT format:', e);
+    }}
     (async () => {
       try {
         setLoading(true);
@@ -113,19 +107,19 @@ export default function Profile() {
 
   // Load submissions
   const loadSubs = async (page = 1) => {
-    try {
-      setSubsLoading(true);
-      const data = await get(`/api/questions/mine?page=${page}&limit=12`);
-      setSubs(data.items || []);
-      setSubsPage(data.page || 1);
-      setSubsPages(data.pages || 1);
-      setSubsTotal(data.total || 0);
-    } catch {
-      // quiet
-    } finally {
-      setSubsLoading(false);
-    }
-  };
+  try {
+    setSubsLoading(true);
+    const data = await get(`/api/questions/mine?page=${page}&limit=12`);
+    setSubs(data.items || []);
+    setSubsPage(data.page || 1);
+    setSubsPages(data.pages || 1);
+    setSubsTotal(data.total || 0);
+  } catch (error) {
+    console.error('🔍 Load submissions error:', error);
+  } finally {
+    setSubsLoading(false);
+  }
+};
   useEffect(() => { loadSubs(1); }, []);
 
   // Load followers/following when modals open
@@ -177,21 +171,22 @@ export default function Profile() {
   const rejectedCount = subs.filter(s => s.status === 'rejected').length;
 
   async function save() {
-    if (pendingAvatar === avatar) return;
-    try {
-      setSaving(true);
-      setErr('');
-      const p = await patchJson('/api/profile', { avatar: pendingAvatar });
-      setAvatar(p.avatar || 'robot');
-      setToast('Avatar updated successfully!');
-      setTimeout(() => setToast(''), 3000);
-      setPickerOpen(false);
-    } catch (e) {
-      setErr(e?.message || 'Update failed');
-    } finally {
-      setSaving(false);
-    }
+  if (pendingAvatar === avatar) return;
+  try {
+    setSaving(true);
+    setErr('');
+    // ✅ Use JWT-enabled patch function instead of patchJson
+    const p = await patch('/api/profile', { avatar: pendingAvatar });
+    setAvatar(p.avatar || 'robot');
+    setToast('Avatar updated successfully!');
+    setTimeout(() => setToast(''), 3000);
+    setPickerOpen(false);
+  } catch (e) {
+    setErr(e?.message || 'Update failed');
+  } finally {
+    setSaving(false);
   }
+}
 
   if (loading) {
     return (

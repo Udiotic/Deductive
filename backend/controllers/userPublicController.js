@@ -11,10 +11,13 @@ export async function getPublicProfile(req, res) {
       .lean();
     if (!user) return res.status(404).json({ message: 'User not found' });
 
+    // Get userId from JWT
+    const viewerId = req.user?.userId;
+
     // is viewer following?
     let isFollowing = false;
-    if (req.session?.userId && String(req.session.userId) !== String(user._id)) {
-      isFollowing = await Follow.exists({ follower: req.session.userId, followee: user._id });
+    if (viewerId && String(viewerId) !== String(user._id)) {
+      isFollowing = await Follow.exists({ follower: viewerId, followee: user._id });
     }
 
     res.json({
@@ -25,7 +28,7 @@ export async function getPublicProfile(req, res) {
       createdAt: user.createdAt,
       followersCount: user.followersCount ?? 0,
       followingCount: user.followingCount ?? 0,
-      isSelf: String(req.session?.userId || '') === String(user._id),
+      isSelf: String(viewerId || '') === String(user._id),
       isFollowing: !!isFollowing
     });
   } catch (err) {
@@ -96,9 +99,10 @@ export async function listFollowing(req, res) {
 
 export async function follow(req, res) {
   try {
-    if (!req.session?.userId) return res.status(401).json({ message: 'Auth required' });
+    const userId = req.user?.userId;
+    if (!userId) return res.status(401).json({ message: 'Auth required' });
 
-    const meId = new mongoose.Types.ObjectId(req.session.userId);
+    const meId = new mongoose.Types.ObjectId(userId); // ✅ Use JWT userId
     const target = await User.findOne({ usernameLower: String(req.params.username || '').toLowerCase() })
       .select('_id').lean();
     if (!target) return res.status(404).json({ message: 'User not found' });
@@ -123,9 +127,10 @@ export async function follow(req, res) {
 
 export async function unfollow(req, res) {
   try {
-    if (!req.session?.userId) return res.status(401).json({ message: 'Auth required' });
+    const userId = req.user?.userId;
+    if (!userId) return res.status(401).json({ message: 'Auth required' });
 
-    const meId = new mongoose.Types.ObjectId(req.session.userId);
+    const meId = new mongoose.Types.ObjectId(userId); // ✅ Use JWT userId
     const target = await User.findOne({ usernameLower: String(req.params.username || '').toLowerCase() })
       .select('_id').lean();
     if (!target) return res.status(404).json({ message: 'User not found' });
@@ -155,7 +160,6 @@ export async function listUserSubmissionsPublic(req, res) {
     if (!u) return res.status(404).json({ message: 'User not found' });
 
     const filter = { submittedBy: u._id };
-    // only owner sees non-approved (keep it simple: public = approved only)
     filter.status = 'approved';
 
     const [items, total] = await Promise.all([

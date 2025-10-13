@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { get, post } from '../lib/api'; //
+import { get, post, del} from '../lib/api'; //
 import { 
   User, 
   Users, 
@@ -109,48 +109,40 @@ export default function PublicProfile() {
     });
   }, [profile?.createdAt]);
 
+
   async function toggleFollow() {
-    if (!profile || profile.isSelf) return;
-    try {
-      setBusy(true);
-      const wasFollowing = profile.isFollowing;
-      
-      if (wasFollowing) {
-        // ✅ Using standard API - DELETE request (we'll need to add delete function)
-        const API_BASE = import.meta.env.VITE_API_BASE || '';
-        const res = await fetch(`${API_BASE}/api/users/${encodeURIComponent(username)}/follow`, {
-          method: 'DELETE',
-          credentials: 'include',
-        });
-        if (!res.ok) {
-          const errorData = await res.json().catch(() => ({}));
-          throw new Error(errorData.message || 'Failed to unfollow');
-        }
-        
-        setProfile(p => p ? {
-          ...p,
-          isFollowing: false,
-          followersCount: Math.max(0, (p.followersCount ?? 0) - 1)
-        } : p);
-        setToast('Unfollowed successfully');
-      } else {
-        // ✅ Using standard post function
-        await post(`/api/users/${encodeURIComponent(username)}/follow`);
-        setProfile(p => p ? {
-          ...p,
-          isFollowing: true,
-          followersCount: (p.followersCount ?? 0) + 1
-        } : p);
-        setToast('Following successfully');
-      }
-      
-      setTimeout(() => setToast(''), 3000);
-    } catch (e) {
-      alert(e?.message || 'Action failed');
-    } finally {
-      setBusy(false);
+  if (!profile || profile.isSelf) return;
+  try {
+    setBusy(true);
+    const wasFollowing = profile.isFollowing;
+    
+    if (wasFollowing) {
+      // ✅ Use JWT-enabled del function instead of direct fetch
+      await del(`/api/users/${encodeURIComponent(username)}/follow`);
+      setProfile(p => p ? {
+        ...p,
+        isFollowing: false,
+        followersCount: Math.max(0, (p.followersCount ?? 0) - 1)
+      } : p);
+      setToast('Unfollowed successfully');
+    } else {
+      // ✅ This is already correct
+      await post(`/api/users/${encodeURIComponent(username)}/follow`);
+      setProfile(p => p ? {
+        ...p,
+        isFollowing: true,
+        followersCount: (p.followersCount ?? 0) + 1
+      } : p);
+      setToast('Following successfully');
     }
+    
+    setTimeout(() => setToast(''), 3000);
+  } catch (e) {
+    alert(e?.message || 'Action failed');
+  } finally {
+    setBusy(false);
   }
+}
 
   if (loading) {
     return (

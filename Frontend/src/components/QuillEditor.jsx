@@ -1,11 +1,15 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Quill from 'quill';
 import DOMPurify from 'dompurify';
 import { postForm } from '../lib/api'; 
+import ErrorPopup from '../components/ErrorPopup'; // ✅ Just add the popup component
 
 export default function QuillEditor({ value, onChange, placeholder }) {
   const containerRef = useRef(null);
   const quillRef = useRef(null);
+  
+  // ✅ Simple error state
+  const [error, setError] = useState(null);
 
   const toolbar = useMemo(() => ([
     [{ header: [1, 2, false] }],
@@ -39,14 +43,58 @@ export default function QuillEditor({ value, onChange, placeholder }) {
               input.onchange = async () => {
                 const file = input.files?.[0];
                 if (!file) return;
-                // upload
-                const fd = new FormData();
-                fd.append('file', file);
-                const { url } = await postForm('/api/uploads/image', fd);
-                // insert
-                const range = quill.getSelection(true);
-                quill.insertEmbed(range.index, 'image', url, 'user');
-                quill.setSelection(range.index + 1, 0);
+
+                // ✅ Client-side size check
+                const maxSize = 5 * 1024 * 1024; // 5MB
+                if (file.size > maxSize) {
+                  const sizeMB = (file.size / (1024 * 1024)).toFixed(1);
+                  setError({
+                    title: "Image Too Large",
+                    message: `Your image (${sizeMB}MB) exceeds the 5MB limit. Please choose a smaller image or compress it first.`,
+                    type: "error"
+                  });
+                  return;
+                }
+
+                try {
+                  // ✅ Show loading cursor
+                  quill.enable(false);
+                  
+                  // Upload
+                  const fd = new FormData();
+                  fd.append('file', file);
+                  const { url } = await postForm('/api/uploads/image', fd);
+                  
+                  // Insert image
+                  const range = quill.getSelection(true);
+                  quill.insertEmbed(range.index, 'image', url, 'user');
+                  quill.setSelection(range.index + 1, 0);
+                  
+                } catch (err) {
+                  // ✅ Handle server errors
+                  if (err.message.includes('File too large') || err.message.includes('5MB')) {
+                    setError({
+                      title: "Upload Failed", 
+                      message: "Image size exceeds the 5MB limit. Please choose a smaller image.",
+                      type: "error"
+                    });
+                  } else if (err.message.includes('unsupported mimetype')) {
+                    setError({
+                      title: "Invalid Image Type",
+                      message: "Please upload a valid image file (JPG, PNG, GIF, WEBP).",
+                      type: "error"
+                    });
+                  } else {
+                    setError({
+                      title: "Upload Error",
+                      message: err.message || "Failed to upload image. Please try again.",
+                      type: "error"
+                    });
+                  }
+                } finally {
+                  // ✅ Re-enable editor
+                  quill.enable(true);
+                }
               };
               input.click();
             }
@@ -72,15 +120,13 @@ export default function QuillEditor({ value, onChange, placeholder }) {
     return () => {
       quill.off('text-change', handler);
       quillRef.current = null;
-      // Quill v2 me destroy ki need nahi, DOM cleanup enough
     };
-  }, [placeholder, toolbar]); // value ko yahan dependency me na rakho (cursor jump hota hai)
+  }, [placeholder, toolbar]);
 
-  // External value change ko (rare case) set karna ho:
+  // External value change
   useEffect(() => {
     const quill = quillRef.current;
     if (!quill) return;
-    // If parent updated value (e.g., load draft), update editor once
     if (value != null && value !== quill.root.innerHTML) {
       const safe = DOMPurify.sanitize(value);
       const pos = quill.getSelection();
@@ -90,8 +136,18 @@ export default function QuillEditor({ value, onChange, placeholder }) {
   }, [value]);
 
   return (
-    <div className="bg-white border rounded">
-      <div ref={containerRef} />
-    </div>
+    <>
+      <div className="bg-white border rounded">
+        <div ref={containerRef} />
+      </div>
+      
+      <ErrorPopup
+        isOpen={!!error}
+        onClose={() => setError(null)}
+        title={error?.title}
+        message={error?.message}
+        type={error?.type}
+      />
+    </>
   );
 }

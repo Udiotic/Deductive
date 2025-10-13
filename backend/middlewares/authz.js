@@ -1,32 +1,32 @@
 import User from '../models/userModel.js';
 import mongoose from 'mongoose';
 
-
+//JWT-based auth check
 export function requireAuth(req, res, next) {
-  if (!req.session?.userId) return res.status(401).json({ message: 'Auth required' });
+  const userId = req.user?.userId;
+  if (!userId) return res.status(401).json({ message: 'Auth required' });
   
-  // Add ObjectId validation
-  if (!mongoose.isValidObjectId(req.session.userId)) {
-    req.session.destroy(() => {});
+  //ObjectId validation
+  if (!mongoose.isValidObjectId(userId)) {
     return res.status(401).json({ message: 'Auth required' });
   }
   
   next();
 }
 
-// Fetch role lazily (one query) when needed
+//JWT-based role checking
 export function requireRole(...allowed) {
   return async (req, res, next) => {
     try {
-      if (!req.session?.userId) return res.status(401).json({ message: 'Auth required' });
+      const userId = req.user?.userId; // ✅ From JWT middleware
+      if (!userId) return res.status(401).json({ message: 'Auth required' });
       
-      // Add ObjectId validation
-      if (!mongoose.isValidObjectId(req.session.userId)) {
-        req.session.destroy(() => {});
+      //ObjectId validation
+      if (!mongoose.isValidObjectId(userId)) {
         return res.status(401).json({ message: 'Auth required' });
       }
       
-      const user = await User.findById(req.session.userId).select('role');
+      const user = await User.findById(userId).select('role');
       if (!user || !user.role || !allowed.includes(user.role)) {
         return res.status(403).json({ message: 'Forbidden' });
       }
@@ -38,4 +38,3 @@ export function requireRole(...allowed) {
     }
   };
 }
-

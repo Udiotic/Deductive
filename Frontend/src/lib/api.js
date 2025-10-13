@@ -8,7 +8,7 @@ function redirectToLogin(nextPath) {
   if (currentPath.startsWith('/reset-password') || 
       currentPath.startsWith('/verify-email-code') ||
       currentPath.startsWith('/forgot-password')) {
-    return; // Don't redirect, these pages should be accessible without auth
+    return;
   }
   
   const next = encodeURIComponent(nextPath || window.location.pathname + window.location.search);
@@ -18,9 +18,35 @@ function redirectToLogin(nextPath) {
   }
 }
 
+// ✅ JWT token management
+function getToken() {
+  return localStorage.getItem('authToken');
+}
+
+function setToken(token) {
+  if (token) {
+    localStorage.setItem('authToken', token);
+  } else {
+    localStorage.removeItem('authToken');
+  }
+}
+
+// ✅ Build headers with JWT auth
+function getAuthHeaders() {
+  const token = getToken();
+  const headers = { 'Content-Type': 'application/json' };
+  
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+  
+  return headers;
+}
+
 async function readError(res) {
-  // If unauthorized anywhere, redirect to login with "next" param.
+  // If unauthorized anywhere, clear token and redirect
   if (res.status === 401) {
+    setToken(null); // ✅ Clear invalid token
     redirectToLogin();
   }
   
@@ -29,19 +55,29 @@ async function readError(res) {
   
   try {
     const j = await res.json();
-    responseData = j; // ← Preserve the entire response data
+    responseData = j;
     if (j?.message) msg = j.message;
   } catch {}
   
   const err = new Error(msg);
   err.status = res.status;
-  err.response = { status: res.status, data: responseData }; // ← Add response structure
-  err.data = responseData; // ← Also add direct data access
+  err.response = { status: res.status, data: responseData };
+  err.data = responseData;
   throw err;
 }
 
 export async function get(path) {
-  const res = await fetch(`${API_BASE}${path}`, { credentials: 'include' });
+  const token = getToken();
+  const headers = {};
+  
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+  
+  const res = await fetch(`${API_BASE}${path}`, { 
+    headers,
+    // ✅ Remove credentials - JWT doesn't need cookies
+  });
   if (!res.ok) return readError(res);
   return res.json();
 }
@@ -49,10 +85,19 @@ export async function get(path) {
 export async function post(path, body) {
   const res = await fetch(`${API_BASE}${path}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    credentials: 'include',
+    headers: getAuthHeaders(), // ✅ Include JWT in headers
     body: JSON.stringify(body ?? {}),
   });
+  
+  // ✅ Handle login response with token
+  if (res.ok && (path === '/api/auth/login' || path === '/api/auth/verify-email-code')) {
+    const data = await res.json();
+    if (data.token) {
+      setToken(data.token); // ✅ Store JWT token
+    }
+    return data;
+  }
+  
   if (!res.ok) return readError(res);
   return res.json();
 }
@@ -60,8 +105,7 @@ export async function post(path, body) {
 export async function patch(path, body) {
   const res = await fetch(`${API_BASE}${path}`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    credentials: 'include',
+    headers: getAuthHeaders(), // ✅ Include JWT in headers
     body: JSON.stringify(body ?? {}),
   });
   if (!res.ok) return readError(res);
@@ -69,11 +113,32 @@ export async function patch(path, body) {
 }
 
 export async function postForm(path, formData) {
+  const token = getToken();
+  const headers = {};
+  
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+  // ✅ Don't set Content-Type for FormData
+  
   const res = await fetch(`${API_BASE}${path}`, {
     method: 'POST',
-    credentials: 'include',
+    headers,
     body: formData,
   });
   if (!res.ok) return readError(res);
   return res.json();
 }
+
+// ✅ Add DELETE method for unfollow functionality
+export async function del(path) {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: 'DELETE',
+    headers: getAuthHeaders(),
+  });
+  if (!res.ok) return readError(res);
+  return res.json();
+}
+
+// ✅ Export token management for AuthProvider
+export { getToken, setToken };

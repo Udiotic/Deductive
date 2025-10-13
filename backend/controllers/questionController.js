@@ -1,4 +1,3 @@
-// controllers/questionController.js
 import mongoose from 'mongoose';
 import Question from '../models/questionModel.js';
 import sanitizeHtml from 'sanitize-html';
@@ -61,6 +60,11 @@ function shape(doc, { reveal = false } = {}) {
 // ---------- POST /api/questions/submit ----------
 export async function submitQuestion(req, res){
   try {
+    const userId = req.user?.userId;
+    if (!userId) {
+      return res.status(401).json({ message: 'Authentication required' });
+    }
+
     const { bodyHtml, answerHtml, answerOneLiner, tags } = req.body;
 
     if (!bodyHtml || !answerHtml) {
@@ -81,7 +85,7 @@ export async function submitQuestion(req, res){
 
     // 3) Collect images
     const thumbUrl   = extractFirstImgSrc(cleanAnswerHtml);         // answer ke liye thumbnail
-    const questionUrls = extractAllImgSrcs(cleanBodyHtml);          // ✅ sirf question wali images
+    const questionUrls = extractAllImgSrcs(cleanBodyHtml);          // sirf question wali images
     const imagesArr  = questionUrls.map(u => ({ url: u }));         // model: images[] = question images only
 
     // 4) Idempotency: same content → same hash
@@ -99,9 +103,9 @@ export async function submitQuestion(req, res){
         answerImage: thumbUrl ? { url: thumbUrl } : undefined,
         answerOneLiner: answerOneLiner || '',
         tags: Array.isArray(tags) ? tags.slice(0, 10) : [],
-        submittedBy: req.session.userId,
+        submittedBy: userId,
         status: 'pending',
-        contentHash, // <- add this field in your schema (unique+sparse)
+        contentHash,
       });
       return res.status(201).json({ id: doc._id });
     } catch (e) {
@@ -139,7 +143,7 @@ export async function getRandomQuestion(req, res) {
       { $sample: { size: 1 } },
       {
         $project: {
-          body: 1,           // <-- plain body
+          body: 1,           
           images: 1,
           tags: 1,
           submittedBy: 1,
@@ -195,6 +199,11 @@ export async function getQuestionById(req, res) {
 
 export async function adminUpdateQuestion(req, res) {
   try {
+    const userId = req.user?.userId;
+    if (!userId) {
+      return res.status(401).json({ message: 'Authentication required' });
+    }
+
     const { id } = req.params;
 
     if (!mongoose.isValidObjectId(id)) {
@@ -216,13 +225,11 @@ export async function adminUpdateQuestion(req, res) {
       return res.status(400).json({ message: 'Question/Answer cannot be empty' });
     }
 
-    // question-side images ONLY
     const questionUrls = extractAllImgSrcs(cleanBody);
     const imagesArr = questionUrls.map(u => ({ url: u }));
 
     const thumbUrl = extractFirstImgSrc(cleanAnswer);
 
-    // optional: dedupe signature
     const contentHash = crypto.createHash('sha256')
       .update(`b:${bodyPlain}#a:${answerPlain}`)
       .digest('hex');
@@ -235,10 +242,9 @@ export async function adminUpdateQuestion(req, res) {
       answerOneLiner: answerOneLiner ?? '',
       contentHash,
       editedAt: new Date(),
-      editedBy: req.session.userId, // add these fields to schema if you want audit
+      editedBy: userId,
     };
 
-    // only admin can change status; moderators only approve/reject in moderation endpoints
     if (typeof status === 'string') {
       update.status = status; // guarded by requireRole in router
     }
@@ -267,11 +273,30 @@ export async function adminUpdateQuestion(req, res) {
 // List submissions by logged-in user
 export async function listMySubmissions(req, res) {
   try {
+    const userId = req.user?.userId;
+    if (!userId) {
+      return res.status(401).json({ message: 'Authentication required' });
+    }
+
+    console.log('🔍 listMySubmissions - userId:', userId);
+
+    // ✅ Convert string userId to ObjectId properly
+    let userObjectId;
+    try {
+      userObjectId = new mongoose.Types.ObjectId(userId);
+      console.log('🔍 Converted to ObjectId:', userObjectId);
+    } catch (e) {
+      console.log('❌ Invalid userId format:', userId, e.message);
+      return res.status(400).json({ message: 'Invalid user ID format' });
+    }
+
     const page  = Math.max(1, parseInt(req.query.page || '1', 10));
     const limit = Math.min(50, Math.max(1, parseInt(req.query.limit || '10', 10)));
     const skip  = (page - 1) * limit;
 
-    const filter = { submittedBy: req.session.userId };
+    const filter = { submittedBy: userObjectId }; // ✅ Use ObjectId
+    console.log('🔍 Query filter:', filter);
+
     const [items, total] = await Promise.all([
       Question.find(filter)
         .sort({ createdAt: -1 })
@@ -280,6 +305,8 @@ export async function listMySubmissions(req, res) {
         .lean(),
       Question.countDocuments(filter),
     ]);
+
+    console.log('🔍 Found items:', items.length, 'Total:', total);
 
     res.json({
       items: items.map(it => ({
@@ -293,7 +320,7 @@ export async function listMySubmissions(req, res) {
       pages: Math.ceil(total / limit),
     });
   } catch (e) {
-    console.error('listMySubmissions', e);
+    console.error('listMySubmissions error:', e);
     res.status(500).json({ message: 'Server error' });
   }
 }
