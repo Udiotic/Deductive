@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { get, post, del} from '../lib/api';
+import { get, post, del} from '../lib/api'; //
 import { 
   User, 
   Users, 
@@ -15,6 +15,7 @@ import {
   UserCheck,
   UserX
 } from 'lucide-react';
+
 
 export default function PublicProfile() {
   const { username } = useParams();
@@ -108,63 +109,64 @@ export default function PublicProfile() {
     });
   }, [profile?.createdAt]);
 
-  // ✅ OPTIMISTIC FOLLOW/UNFOLLOW
+
   async function toggleFollow() {
-    if (!profile || profile.isSelf || busy) return;
+  if (!profile || profile.isSelf || busy) return;
 
-    // Store original state for potential rollback
-    const originalState = {
-      isFollowing: profile.isFollowing,
-      followersCount: profile.followersCount ?? 0
-    };
+  // ✅ Store original state for potential rollback
+  const originalState = {
+    isFollowing: profile.isFollowing,
+    followersCount: profile.followersCount ?? 0
+  };
 
-    const wasFollowing = profile.isFollowing;
+  const wasFollowing = profile.isFollowing;
 
-    try {
-      // ✅ INSTANTLY update UI (no loading state!)
-      setProfile(p => p ? {
-        ...p,
-        isFollowing: !wasFollowing,
-        followersCount: wasFollowing 
-          ? Math.max(0, (p.followersCount ?? 0) - 1)
-          : (p.followersCount ?? 0) + 1
-      } : p);
+  try {
+    // ✅ INSTANTLY update UI (no loading state!)
+    setProfile(p => p ? {
+      ...p,
+      isFollowing: !wasFollowing,
+      followersCount: wasFollowing 
+        ? Math.max(0, (p.followersCount ?? 0) - 1)
+        : (p.followersCount ?? 0) + 1
+    } : p);
 
-      // ✅ Show immediate feedback
-      setToast(wasFollowing ? 'Unfollowed!' : 'Following!');
-      setTimeout(() => setToast(''), 2000);
+    // ✅ Show immediate feedback
+    setToast(wasFollowing ? 'Unfollowed!' : 'Following!');
+    setTimeout(() => setToast(''), 2000);
 
-      // ✅ Set subtle busy state (for preventing double-clicks)
-      setBusy(true);
+    // ✅ Set subtle busy state (for preventing double-clicks, but no spinner shown)
+    setBusy(true);
 
-      // ✅ Background API call (user doesn't see this)
-      if (wasFollowing) {
-        await del(`/api/users/${encodeURIComponent(username)}/follow`);
-      } else {
-        await post(`/api/users/${encodeURIComponent(username)}/follow`);
-      }
-
-      // ✅ Success - keep the optimistic update
-      console.log('✅ Follow/unfollow confirmed by server');
-
-    } catch (error) {
-      console.error('❌ Follow/unfollow failed:', error);
-
-      // ✅ ROLLBACK - revert to original state
-      setProfile(p => p ? {
-        ...p,
-        isFollowing: originalState.isFollowing,
-        followersCount: originalState.followersCount
-      } : p);
-
-      // ✅ Show error feedback
-      setToast(`Failed to ${wasFollowing ? 'unfollow' : 'follow'}. Please try again.`);
-      setTimeout(() => setToast(''), 3000);
-
-    } finally {
-      setBusy(false);
+    // ✅ Background API call (user doesn't see this)
+    if (wasFollowing) {
+      await del(`/api/users/${encodeURIComponent(username)}/follow`);
+    } else {
+      await post(`/api/users/${encodeURIComponent(username)}/follow`);
     }
+
+    // ✅ Success - keep the optimistic update
+    console.log('✅ Follow/unfollow confirmed by server');
+
+  } catch (error) {
+    console.error('❌ Follow/unfollow failed:', error);
+
+    // ✅ ROLLBACK - revert to original state
+    setProfile(p => p ? {
+      ...p,
+      isFollowing: originalState.isFollowing,
+      followersCount: originalState.followersCount
+    } : p);
+
+    // ✅ Show error feedback
+    setToast(`Failed to ${wasFollowing ? 'unfollow' : 'follow'}. Please try again.`);
+    setTimeout(() => setToast(''), 3000);
+
+  } finally {
+    setBusy(false);
   }
+}
+
 
   if (loading) {
     return (
@@ -272,31 +274,26 @@ export default function PublicProfile() {
                 </button>
               </div>
 
-              {/* ✅ OPTIMISTIC FOLLOW BUTTON */}
+              {/* Follow Button */}
               {!profile.isSelf && (
                 <button
                   onClick={toggleFollow}
-                  disabled={false} // ✅ Never disable - always clickable
-                  className={`flex items-center gap-2 px-6 py-3 rounded-2xl font-semibold transition-all duration-200 relative overflow-hidden group ${
+                  disabled={busy}
+                  className={`flex items-center gap-2 px-6 py-3 rounded-2xl font-semibold transition-all duration-200 disabled:opacity-50 ${
                     profile.isFollowing
                       ? 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                       : 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white hover:from-indigo-700 hover:to-purple-700 hover:scale-105 shadow-lg hover:shadow-xl'
                   }`}
                 >
-                  {/* ✅ Subtle pending indicator */}
-                  {busy && (
-                    <div className="absolute inset-0 bg-white/10 animate-pulse" />
-                  )}
-                  
-                  {/* ✅ No loading spinner - always show the action icon */}
-                  {profile.isFollowing ? (
-                    <UserCheck size={18} className="transition-transform group-hover:scale-110" />
+                  {busy ? (
+                    <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                  ) : profile.isFollowing ? (
+                    <UserCheck size={18} />
                   ) : (
-                    <UserPlus size={18} className="transition-transform group-hover:scale-110" />
+                    <UserPlus size={18} />
                   )}
-                  
-                  <span className="relative z-10">
-                    {profile.isFollowing ? 'Following' : 'Follow'}
+                  <span>
+                    {busy ? 'Processing...' : profile.isFollowing ? 'Following' : 'Follow'}
                   </span>
                 </button>
               )}
