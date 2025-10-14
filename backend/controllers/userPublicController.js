@@ -11,40 +11,28 @@ export async function getPublicProfile(req, res) {
       .lean();
     if (!user) return res.status(404).json({ message: 'User not found' });
 
-    // ✅ Debug the viewer
     const viewerId = req.user?.userId;
-
-    let viewerObjectId = null;
+    let isFollowing = false;
+    let isSelf = false;
+    
     if (viewerId) {
       try {
-        viewerObjectId = new mongoose.Types.ObjectId(viewerId);
+        const viewerObjectId = new mongoose.Types.ObjectId(viewerId);
+        isSelf = viewerObjectId.equals(user._id);
+        
+        // ✅ SIMPLE: Only check if not self
+        if (!isSelf) {
+          const followDoc = await Follow.findOne({ 
+            follower: viewerObjectId, 
+            followee: user._id 
+          });
+          isFollowing = !!followDoc;
+          
+        }
       } catch (e) {
-        console.log('❌ Invalid viewerId format:', viewerId, e.message);
+        console.log('❌ ObjectId error:', e.message);
       }
     }
-
-    // ✅ Debug the follow check with multiple query attempts
-    let isFollowing = false;
-    if (viewerObjectId && !viewerObjectId.equals(user._id)) {
-      
-      const queries = [
-        { follower: viewerObjectId, followee: user._id },
-        { follower: viewerId, followee: user._id },
-        { follower: viewerObjectId, followee: user._id.toString() },
-        { follower: viewerId, followee: user._id.toString() }
-      ];
-
-      
-
-      // Also check what follows actually exist for this viewer
-      const allFollows = await Follow.find({ follower: viewerObjectId }).lean();
-      console.log('- All follows by viewer:', allFollows.map(f => ({
-        follower: f.follower.toString(),
-        followee: f.followee.toString()
-      })));
-    }
-
-    console.log('- Final isFollowing:', isFollowing);
 
     res.json({
       id: user._id,
@@ -54,8 +42,8 @@ export async function getPublicProfile(req, res) {
       createdAt: user.createdAt,
       followersCount: user.followersCount ?? 0,
       followingCount: user.followingCount ?? 0,
-      isSelf: viewerObjectId ? viewerObjectId.equals(user._id) : false,
-      isFollowing: !!isFollowing
+      isSelf: isSelf,
+      isFollowing: isFollowing
     });
   } catch (err) {
     console.error('getPublicProfile error:', err);
@@ -63,6 +51,8 @@ export async function getPublicProfile(req, res) {
   }
 }
 
+
+// Keep all your other functions exactly the same
 export async function follow(req, res) {
   try {
     const userId = req.user?.userId;
@@ -90,20 +80,13 @@ export async function follow(req, res) {
 
     // ✅ Check if already following before creating
     const existing = await Follow.findOne({ follower: meId, followee: target._id });
-    console.log('- Existing follow:', existing);
 
     if (existing) {
-      console.log('ℹ️ Already following');
       return res.json({ ok: true, following: true });
     }
 
     try {
       const newFollow = await Follow.create({ follower: meId, followee: target._id });
-      console.log('✅ Follow created:', {
-        id: newFollow._id,
-        follower: newFollow.follower.toString(),
-        followee: newFollow.followee.toString()
-      });
       
       // Update counters
       await Promise.all([
@@ -111,7 +94,6 @@ export async function follow(req, res) {
         User.updateOne({ _id: meId }, { $inc: { followingCount: 1 } })
       ]);
 
-      console.log('✅ Counters updated');
     } catch (e) {
       console.error('❌ Follow creation failed:', e);
       if (e.code === 11000) {
@@ -158,7 +140,6 @@ export async function unfollow(req, res) {
         User.updateOne({ _id: target._id }, { $inc: { followersCount: -1 } }),
         User.updateOne({ _id: meId }, { $inc: { followingCount: -1 } })
       ]);
-      console.log('✅ Counters decremented');
     }
     
     res.json({ ok: true, following: false });
@@ -168,7 +149,7 @@ export async function unfollow(req, res) {
   }
 }
 
-// ... other functions stay the same
+// Keep all other functions exactly the same...
 export async function listFollowers(req, res) {
   try {
     const uname = String(req.params.username || '');

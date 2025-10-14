@@ -74,57 +74,89 @@ const getEmailTemplate = (content) => `
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- Avoid meta viewport tweaks that some clients ignore -->
+  <meta name="x-apple-disable-message-reformatting">
+  <meta http-equiv="x-ua-compatible" content="ie=edge">
   <title>Deductive</title>
   <!--[if mso]>
-  <noscript>
-    <xml>
-      <o:OfficeDocumentSettings>
-        <o:PixelsPerInch>96</o:PixelsPerInch>
-      </o:OfficeDocumentSettings>
-    </xml>
-  </noscript>
+  <style type="text/css">
+    .fallback-font { font-family: Arial, sans-serif !important; }
+  </style>
   <![endif]-->
 </head>
-<body style="margin: 0; padding: 0; background: linear-gradient(135deg, #f0f4ff 0%, #e0e7ff 50%, #f3e8ff 100%); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
-  <table cellpadding="0" cellspacing="0" border="0" width="100%" style="background: linear-gradient(135deg, #f0f4ff 0%, #e0e7ff 50%, #f3e8ff 100%); min-height: 100vh;">
+<body class="fallback-font" style="
+  margin:0 !important;
+  padding:0 !important;
+  background:#eef2ff; /* solid color instead of gradient */
+  -webkit-text-size-adjust:100%;
+  -ms-text-size-adjust:100%;
+">
+  <!-- Full-width wrapper (no vh units) -->
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#eef2ff;">
     <tr>
-      <td align="center" style="padding: 40px 20px;">
-        <table cellpadding="0" cellspacing="0" border="0" width="100%" style="max-width: 600px; background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px); border-radius: 24px; box-shadow: 0 25px 50px rgba(0, 0, 0, 0.1); border: 1px solid rgba(255, 255, 255, 0.2);">
+      <td align="center" style="padding:40px 16px;">
+        <!-- Constrained container -->
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="
+          max-width:600px;
+          width:100%;
+          background:#ffffff;
+          border-radius:16px;
+          border:1px solid #f2f2f2;
+          box-shadow:0 8px 24px rgba(0,0,0,0.08);
+        ">
           <!-- Header -->
           <tr>
-            <td align="center" style="padding: 40px 40px 0 40px;">
-              <div style="width: 64px; height: 64px; background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); border-radius: 20px; display: inline-flex; align-items: center; justify-content: center; margin-bottom: 24px;">
-                <span style="color: white; font-size: 28px; font-weight: bold;">🧠</span>
-              </div>
-              <h1 style="margin: 0; font-size: 32px; font-weight: 700; background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;">
+            <td align="center" style="padding:32px 24px 0 24px;">
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td align="center" style="
+                    width:64px; height:64px;
+                    background:#6d28d9; /* solid fallback */
+                    border-radius:16px;
+                    text-align:center;
+                  ">
+                    <span style="color:#ffffff; font-size:28px; font-weight:bold; line-height:64px; display:inline-block;">🧠</span>
+                  </td>
+                </tr>
+              </table>
+              <h1 style="
+                margin:16px 0 0 0;
+                font-size:28px; line-height:1.2;
+                font-weight:700;
+                color:#4f46e5; /* use color instead of gradient text */
+                font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;
+              ">
                 Deductive
               </h1>
-              <p style="margin: 8px 0 0 0; color: #6b7280; font-size: 16px;">
+              <p style="
+                margin:8px 0 0 0; color:#6b7280; font-size:16px; line-height:1.5;
+                font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;
+              ">
                 Where every question is a puzzle waiting to be solved
               </p>
             </td>
           </tr>
-          
+
           <!-- Content -->
           <tr>
-            <td style="padding: 40px;">
+            <td style="padding:32px 24px 32px 24px; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif; color:#111827; font-size:16px; line-height:1.6;">
               ${content}
             </td>
           </tr>
-          
+
           <!-- Footer -->
           <tr>
-            <td align="center" style="padding: 0 40px 40px 40px; border-top: 1px solid #e5e7eb;">
-              <p style="margin: 24px 0 16px 0; color: #6b7280; font-size: 14px; line-height: 1.5;">
+            <td align="center" style="padding:0 24px 32px 24px; border-top:1px solid #e5e7eb;">
+              <p style="margin:24px 0 8px 0; color:#6b7280; font-size:14px; line-height:1.5; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;">
                 This email was sent from <strong>Deductive</strong><br>
                 The platform for logical thinkers and puzzle enthusiasts
               </p>
-              <p style="margin: 0; color: #9ca3af; font-size: 12px;">
+              <p style="margin:0; color:#9ca3af; font-size:12px; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;">
                 © 2025 Deductive. Made with 🧠 for curious minds.
               </p>
             </td>
           </tr>
+
         </table>
       </td>
     </tr>
