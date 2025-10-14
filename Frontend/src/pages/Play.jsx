@@ -1,6 +1,9 @@
-import { useEffect, useState, useCallback } from 'react';
+// src/pages/Play.jsx
+import { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { get } from '../lib/api';
+import { useQueryClient } from '@tanstack/react-query';
+import { useRandomQuestionQuery, useQuestionQuery } from '../hooks/useQueries';
+import { patch, get } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import QuillEditor from '../components/QuillEditor';
 import { 
@@ -17,36 +20,17 @@ import {
   RefreshCw
 } from 'lucide-react';
 
-// CSRF helper (same as before)
-async function patchJson(path, body) {
-  const API_BASE = import.meta.env.VITE_API_BASE || '';
-
-  const res = await fetch(`${API_BASE}${path}`, {
-    method: 'PATCH',
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json'},
-    body: JSON.stringify(body ?? {}),
-  });
-  if (!res.ok) {
-    let msg = 'Request failed';
-    try { const j = await res.json(); if (j?.message) msg = j.message; } catch {}
-    throw new Error(msg);
-  }
-  return res.json();
-}
-
 export default function Play() {
   const { user } = useAuth();
+  const queryClient = useQueryClient();
 
-  // browsing state
-  const [stack, setStack] = useState([]);
-  const [idx, setIdx] = useState(-1);
-  const [loading, setLoading] = useState(false);
-  const [reveal, setReveal] = useState(null);
+  // ✅ Game state
+  const [questionHistory, setQuestionHistory] = useState([]);
+  const [currentIndex, setCurrentIndex] = useState(-1);
+  const [showAnswer, setShowAnswer] = useState(false);
   const [showCelebration, setShowCelebration] = useState(false);
-  const current = idx >= 0 ? stack[idx] : null;
 
-  // admin-edit modal state
+  // ✅ Admin edit state
   const [editOpen, setEditOpen] = useState(false);
   const [editBodyHtml, setEditBodyHtml] = useState('');
   const [editAnswerHtml, setEditAnswerHtml] = useState('');
@@ -54,110 +38,132 @@ export default function Play() {
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState('');
 
-  // fetch random question
-  const fetchRandom = useCallback(async () => {
-    setLoading(true);
-    setReveal(null);
-    try {
-      const lastIds = stack.slice(-10).map(q => q.id);
-      const excludeIds = Array.from(new Set(lastIds));
-      const query = excludeIds.length
-        ? '?' + new URLSearchParams(excludeIds.map(id => ['excludeIds', id]))
-        : '';
+  // ✅ Get current question ID and exclude list
+  const currentQuestionId = currentIndex >= 0 ? questionHistory[currentIndex] : null;
+  const excludeIds = questionHistory.slice(-10); // Last 10 questions
 
-      const q = await get('/api/questions/random' + query);
-      setStack(prev => [...prev.slice(0, idx + 1), q]);
-      setIdx(prev => prev + 1);
-    } finally {
-      setLoading(false);
-    }
-  }, [stack, idx]);
+  // ✅ Fetch random question with React Query
+  const { 
+    data: randomQuestion, 
+    isLoading: loadingRandom,
+    refetch: fetchNewQuestion 
+  } = useRandomQuestionQuery(excludeIds);
 
-  async function toggleAnswer() {
-    if (!current) return;
-    if (reveal) { 
-      setReveal(null); 
-      setShowCelebration(false);
-      return; 
-    }
-    
-    setLoading(true);
-    try {
-      const full = await get(`/api/questions/${current.id}?reveal=true`);
-      setReveal({
-        answer: full.answer,
-        answerImage: full.answerImage,
-        answerOneLiner: full.answerOneLiner,
+  // ✅ Fetch current question details
+  const { 
+    data: currentQuestion, 
+    isLoading: loadingCurrent 
+  } = useQuestionQuery(currentQuestionId);
+
+  // ✅ Fetch full question with answer when revealing
+  const { 
+    data: fullQuestion, 
+    isLoading: loadingAnswer,
+    refetch: fetchFullQuestion 
+  } = useQuestionQuery(currentQuestionId, { reveal: showAnswer });
+
+  // ✅ Initialize with first question
+  const initializeGame = () => {
+    if (randomQuestion && currentIndex === -1) {
+      setQuestionHistory([randomQuestion.id]);
+      setCurrentIndex(0);
+      // Prefetch the full version for answer reveal
+      queryClient.prefetchQuery({
+        queryKey: ['question', randomQuestion.id, 'full'],
+        queryFn: () => get(`/api/questions/${randomQuestion.id}?reveal=true`),
       });
+    }
+  };
+
+  // Initialize when random question loads
+  useMemo(() => {
+    initializeGame();
+  }, [randomQuestion]);
+
+  // ✅ Navigation functions
+  const goNext = () => {
+    setShowAnswer(false);
+    setShowCelebration(false);
+    
+    if (currentIndex < questionHistory.length - 1) {
+      // Go to next question in history
+      setCurrentIndex(currentIndex + 1);
+    } else {
+      // Fetch new question
+      if (randomQuestion) {
+        setQuestionHistory(prev => [...prev, randomQuestion.id]);
+        setCurrentIndex(prev => prev + 1);
+        // Refetch for next question
+        fetchNewQuestion();
+        // Prefetch the full version
+        queryClient.prefetchQuery({
+          queryKey: ['question', randomQuestion.id, 'full'],
+          queryFn: () => get(`/api/questions/${randomQuestion.id}?reveal=true`),
+        });
+      }
+    }
+  };
+
+  const goBack = () => {
+    if (currentIndex > 0) {
+      setCurrentIndex(currentIndex - 1);
+      setShowAnswer(false);
+      setShowCelebration(false);
+    }
+  };
+
+  // ✅ Answer reveal
+  const toggleAnswer = () => {
+    if (!currentQuestion) return;
+    
+    if (showAnswer) {
+      setShowAnswer(false);
+      setShowCelebration(false);
+    } else {
+      setShowAnswer(true);
       // Show celebration animation
       setShowCelebration(true);
       setTimeout(() => setShowCelebration(false), 2000);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    fetchRandom();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const goBack = () => {
-    setReveal(null);
-    setShowCelebration(false);
-    setIdx(i => Math.max(0, i - 1));
-  };
-
-  const goNext = () => {
-    setShowCelebration(false);
-    if (idx < stack.length - 1) {
-      setReveal(null);
-      setIdx(i => i + 1);
-    } else {
-      fetchRandom();
     }
   };
 
-  // Admin functions (same as before)
-  function openEdit() {
-    if (!current) return;
+  // ✅ Admin edit functions (unchanged logic)
+  const openEdit = () => {
+    if (!currentQuestion) return;
     const toHtml = (plain) =>
       plain ? `<p>${String(plain).replace(/\n/g, '</p><p>')}</p>` : '<p></p>';
 
-    setEditBodyHtml(toHtml(current.body));
-    setEditAnswerHtml(toHtml(reveal?.answer || ''));
-    setEditOneLiner(reveal?.answerOneLiner || '');
+    setEditBodyHtml(toHtml(currentQuestion.body));
+    setEditAnswerHtml(toHtml(fullQuestion?.answer || ''));
+    setEditOneLiner(fullQuestion?.answerOneLiner || '');
     setEditOpen(true);
-  }
+  };
 
-  async function saveEdit() {
-    if (!current) return;
+  const saveEdit = async () => {
+    if (!currentQuestion) return;
     try {
       setSaving(true);
-      await patchJson(`/api/questions/${current.id}`, {
+      await patch(`/api/questions/${currentQuestion.id}`, {
         bodyHtml: editBodyHtml,
         answerHtml: editAnswerHtml,
         answerOneLiner: editOneLiner,
       });
       setEditOpen(false);
-      setReveal(null);
+      setShowAnswer(false);
       setToast('Changes saved successfully!');
 
-      const refreshed = await get(`/api/questions/${current.id}`);
-      setStack(prev => {
-        const next = [...prev];
-        next[idx] = refreshed;
-        return next;
-      });
+      // Invalidate and refetch question data
+      queryClient.invalidateQueries({ queryKey: ['question', currentQuestion.id] });
       setTimeout(() => setToast(''), 3000);
     } catch (e) {
       alert(e?.message || 'Save failed');
     } finally {
       setSaving(false);
     }
-  }
+  };
 
-  if (!current && loading) {
+  // ✅ Loading state
+  if (currentIndex === -1 && loadingRandom) {
     return (
       <div className="min-h-[80vh] bg-gradient-to-br from-indigo-50 to-purple-50 flex items-center justify-center">
         <div className="text-center">
@@ -168,6 +174,10 @@ export default function Play() {
     );
   }
 
+  // ✅ Get display data - use full question if showing answer, otherwise basic
+  const displayQuestion = showAnswer ? fullQuestion || currentQuestion : currentQuestion;
+  const isLoading = loadingCurrent || (showAnswer && loadingAnswer);
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50">
       {/* Header with Progress */}
@@ -176,7 +186,7 @@ export default function Play() {
           <div className="flex items-center justify-between">
             <button
               onClick={goBack}
-              disabled={loading || idx <= 0}
+              disabled={currentIndex <= 0}
               className="flex items-center gap-2 px-4 py-2 text-gray-600 hover:text-gray-900 hover:bg-gray-50 rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <ChevronLeft size={20} />
@@ -184,17 +194,17 @@ export default function Play() {
             </button>
 
             <div className="text-center">
-              <div className="text-2xl font-bold text-gray-900">Question {Math.max(0, idx) + 1}</div>
+              <div className="text-2xl font-bold text-gray-900">Question {currentIndex + 1}</div>
               <div className="text-sm text-gray-500">Keep that brain working!</div>
             </div>
 
             <button
               onClick={goNext}
-              disabled={loading}
+              disabled={isLoading}
               className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white hover:bg-indigo-700 rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <span className="font-medium">{loading ? 'Loading...' : 'Next'}</span>
-              {loading ? <RefreshCw size={20} className="animate-spin" /> : <ChevronRight size={20} />}
+              <span className="font-medium">{isLoading ? 'Loading...' : 'Next'}</span>
+              {isLoading ? <RefreshCw size={20} className="animate-spin" /> : <ChevronRight size={20} />}
             </button>
           </div>
         </div>
@@ -223,7 +233,7 @@ export default function Play() {
 
       {/* Main Content */}
       <div className="max-w-4xl mx-auto px-6 py-8">
-        {current ? (
+        {displayQuestion ? (
           <div className="space-y-8">
             {/* Question Card */}
             <div className="bg-white/80 backdrop-blur-sm rounded-3xl shadow-xl border border-white/20 overflow-hidden">
@@ -242,14 +252,14 @@ export default function Play() {
                 {/* Question Content */}
                 <div className="prose prose-lg max-w-none mb-8">
                   <div className="text-xl leading-relaxed text-gray-800 whitespace-pre-wrap font-medium">
-                    {current.body}
+                    {displayQuestion.body}
                   </div>
                 </div>
 
                 {/* Question Images */}
-                {current.images?.length > 0 && (
+                {displayQuestion.images?.length > 0 && (
                   <div className="mb-8 grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {current.images.map((im, i) => (
+                    {displayQuestion.images.map((im, i) => (
                       <div key={i} className="group relative overflow-hidden rounded-2xl">
                         <img 
                           src={im.url} 
@@ -265,22 +275,22 @@ export default function Play() {
                 <div className="flex flex-wrap items-center gap-4 mb-6">
                   <button
                     onClick={toggleAnswer}
-                    disabled={loading}
+                    disabled={isLoading}
                     className={`flex items-center gap-3 px-8 py-4 rounded-2xl font-semibold text-lg transition-all duration-300 ${
-                      reveal 
+                      showAnswer 
                         ? 'bg-gray-100 text-gray-700 hover:bg-gray-200' 
                         : 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white hover:from-indigo-700 hover:to-purple-700 hover:scale-105 shadow-lg hover:shadow-xl'
                     } disabled:opacity-50 disabled:cursor-not-allowed`}
                   >
-                    {loading ? (
+                    {isLoading ? (
                       <RefreshCw size={24} className="animate-spin" />
-                    ) : reveal ? (
+                    ) : showAnswer ? (
                       <EyeOff size={24} />
                     ) : (
                       <Eye size={24} />
                     )}
                     <span>
-                      {loading ? 'Revealing...' : reveal ? 'Hide Answer' : 'Reveal Answer'}
+                      {isLoading ? 'Loading...' : showAnswer ? 'Hide Answer' : 'Reveal Answer'}
                     </span>
                   </button>
 
@@ -297,13 +307,13 @@ export default function Play() {
                 </div>
 
                 {/* Answer Reveal */}
-                {reveal && (
+                {showAnswer && fullQuestion && (
                   <div className="animate-in slide-in-from-bottom duration-500 border-t border-gray-100 pt-8">
                     <div className="bg-gradient-to-br from-emerald-50 to-teal-50 rounded-2xl p-6 border border-emerald-100">
-                      {reveal.answerOneLiner && (
+                      {fullQuestion.answerOneLiner && (
                         <div className="flex items-center gap-2 mb-4 text-emerald-700">
                           <CheckCircle size={20} />
-                          <span className="text-lg font-medium italic">{reveal.answerOneLiner}</span>
+                          <span className="text-lg font-medium italic">{fullQuestion.answerOneLiner}</span>
                         </div>
                       )}
                       
@@ -313,15 +323,15 @@ export default function Play() {
                           The Answer
                         </h3>
                         <div className="text-lg text-gray-800 leading-relaxed">
-                          {reveal.answer}
+                          {fullQuestion.answer}
                         </div>
                       </div>
 
-                      {reveal.answerImage?.url && (
+                      {fullQuestion.answerImage?.url && (
                         <div className="mt-6">
                           <img
-                            src={reveal.answerImage.url}
-                            alt={reveal.answerImage.alt || ''}
+                            src={fullQuestion.answerImage.url}
+                            alt={fullQuestion.answerImage.alt || ''}
                             className="rounded-2xl shadow-lg max-w-full h-auto"
                           />
                         </div>
@@ -332,7 +342,7 @@ export default function Play() {
                     <div className="mt-6 text-center">
                       <button
                         onClick={goNext}
-                        disabled={loading}
+                        disabled={isLoading}
                         className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-2xl font-semibold hover:scale-105 transition-all duration-200"
                       >
                         <span>Next Challenge</span>
@@ -348,12 +358,12 @@ export default function Play() {
                     <User size={16} />
                     <span className="text-sm">
                       Submitted by{' '}
-                      {current.submittedBy?.username ? (
+                      {displayQuestion.submittedBy?.username ? (
                         <Link
-                          to={`/profile/${current.submittedBy.username}`}
+                          to={`/profile/${displayQuestion.submittedBy.username}`}
                           className="font-medium text-indigo-600 hover:text-indigo-800 hover:underline transition-colors"
                         >
-                          @{current.submittedBy.username}
+                          @{displayQuestion.submittedBy.username}
                         </Link>
                       ) : (
                         <span className="font-medium text-gray-700">@Unknown</span>
@@ -368,7 +378,7 @@ export default function Play() {
           <div className="text-center py-16">
             <div className="text-xl text-gray-600">No questions available right now</div>
             <button
-              onClick={fetchRandom}
+              onClick={() => fetchNewQuestion()}
               className="mt-4 px-6 py-3 bg-indigo-600 text-white rounded-2xl font-semibold hover:bg-indigo-700 transition-all"
             >
               Try Again
@@ -377,7 +387,7 @@ export default function Play() {
         )}
       </div>
 
-      {/* Admin Edit Modal */}
+      {/* Admin Edit Modal - unchanged */}
       {editOpen && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white w-full max-w-4xl rounded-2xl shadow-2xl max-h-[90vh] overflow-auto">

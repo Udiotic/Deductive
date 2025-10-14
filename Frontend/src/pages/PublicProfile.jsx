@@ -1,6 +1,14 @@
-import { useEffect, useMemo, useState } from 'react';
+// src/pages/PublicProfile.jsx
+import { useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { get, post, del} from '../lib/api';
+import { useQueryClient } from '@tanstack/react-query';
+import { 
+  usePublicProfileQuery,
+  useUserSubmissionsQuery,
+  useFollowersQuery,
+  useFollowingQuery,
+  useFollowMutation
+} from '../hooks/useQueries';
 import { 
   User, 
   Users, 
@@ -12,82 +20,45 @@ import {
   TrendingUp,
   Sparkles,
   X,
-  UserCheck,
-  UserX
+  UserCheck
 } from 'lucide-react';
 
 export default function PublicProfile() {
   const { username } = useParams();
+  const queryClient = useQueryClient();
 
-  const [loading, setLoading] = useState(true);
-  const [profile, setProfile] = useState(null);
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState('');
-  const [toast, setToast] = useState('');
+  // ✅ React Query hooks replace all useState/useEffect
+  const { 
+    data: profile, 
+    isLoading: profileLoading, 
+    error: profileError 
+  } = usePublicProfileQuery(username);
 
-  // lists
-  const [subs, setSubs] = useState([]);
-  const [subsMeta, setSubsMeta] = useState({ page: 1, pages: 1, total: 0, loading: true });
-  const [followers, setFollowers] = useState([]);
-  const [following, setFollowing] = useState([]);
-  const [followersMeta, setFollowersMeta] = useState({ loading: false });
-  const [followingMeta, setFollowingMeta] = useState({ loading: false });
+  const { 
+    data: subsData, 
+    isLoading: subsLoading 
+  } = useUserSubmissionsQuery(username, 1, 12);
 
-  // modals
+  const { 
+    data: followersData, 
+    isLoading: followersLoading,
+    refetch: refetchFollowers
+  } = useFollowersQuery(username);
+
+  const { 
+    data: followingData, 
+    isLoading: followingLoading,
+    refetch: refetchFollowing  
+  } = useFollowingQuery(username);
+
+  const followMutation = useFollowMutation(username);
+
+  // Modal states (unchanged)
   const [followersOpen, setFollowersOpen] = useState(false);
   const [followingOpen, setFollowingOpen] = useState(false);
+  const [toast, setToast] = useState('');
 
-  useEffect(() => {
-    (async () => {
-      try {
-        setLoading(true);
-        const p = await get(`/api/users/${encodeURIComponent(username)}/profile`);
-        setProfile(p);
-      } catch (e) {
-        setErr(e?.message || 'Failed to load profile');
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, [username]);
-
-  async function loadSubs(page = 1) {
-    setSubsMeta(m => ({ ...m, loading: true }));
-    try {
-      const res = await get(`/api/users/${encodeURIComponent(username)}/submissions?page=${page}&limit=12`);
-      setSubs(res.items || []);
-      setSubsMeta({ page: res.page || 1, pages: res.pages || 1, total: res.total || 0, loading: false });
-    } catch {
-      setSubsMeta(m => ({ ...m, loading: false }));
-    }
-  }
-
-  async function loadFollowers() {
-    setFollowersMeta({ loading: true });
-    try {
-      const res = await get(`/api/users/${encodeURIComponent(username)}/followers?page=1&limit=20`);
-      setFollowers(res.items || []);
-      setFollowersMeta({ loading: false });
-    } catch {
-      setFollowersMeta({ loading: false });
-    }
-  }
-
-  async function loadFollowing() {
-    setFollowingMeta({ loading: true });
-    try {
-      const res = await get(`/api/users/${encodeURIComponent(username)}/following?page=1&limit=20`);
-      setFollowing(res.items || []);
-      setFollowingMeta({ loading: false });
-    } catch {
-      setFollowingMeta({ loading: false });
-    }
-  }
-
-  useEffect(() => { loadSubs(1); }, [username]);
-  useEffect(() => { if (followersOpen) loadFollowers(); }, [followersOpen, username]);
-  useEffect(() => { if (followingOpen) loadFollowing(); }, [followingOpen, username]);
-
+  // ✅ Avatar and date logic (unchanged)
   const avatarUrl = useMemo(() => {
     const key = profile?.avatar || 'robot';
     const map = {
@@ -108,65 +79,40 @@ export default function PublicProfile() {
     });
   }, [profile?.createdAt]);
 
-  // ✅ OPTIMISTIC FOLLOW/UNFOLLOW
-  async function toggleFollow() {
-    if (!profile || profile.isSelf || busy) return;
-
-    // Store original state for potential rollback
-    const originalState = {
-      isFollowing: profile.isFollowing,
-      followersCount: profile.followersCount ?? 0
-    };
-
-    const wasFollowing = profile.isFollowing;
-
+  // ✅ Optimistic follow/unfollow with React Query
+  const toggleFollow = async () => {
+    if (!profile || profile.isSelf) return;
+    
+    const action = profile.isFollowing ? 'unfollow' : 'follow';
+    
     try {
-      // ✅ INSTANTLY update UI (no loading state!)
-      setProfile(p => p ? {
-        ...p,
-        isFollowing: !wasFollowing,
-        followersCount: wasFollowing 
-          ? Math.max(0, (p.followersCount ?? 0) - 1)
-          : (p.followersCount ?? 0) + 1
-      } : p);
-
-      // ✅ Show immediate feedback
-      setToast(wasFollowing ? 'Unfollowed!' : 'Following!');
+      await followMutation.mutateAsync(action);
+      setToast(action === 'follow' ? 'Following!' : 'Unfollowed!');
       setTimeout(() => setToast(''), 2000);
-
-      // ✅ Set subtle busy state (for preventing double-clicks)
-      setBusy(true);
-
-      // ✅ Background API call (user doesn't see this)
-      if (wasFollowing) {
-        await del(`/api/users/${encodeURIComponent(username)}/follow`);
-      } else {
-        await post(`/api/users/${encodeURIComponent(username)}/follow`);
-      }
-
-      // ✅ Success - keep the optimistic update
-      console.log('✅ Follow/unfollow confirmed by server');
-
     } catch (error) {
-      console.error('❌ Follow/unfollow failed:', error);
-
-      // ✅ ROLLBACK - revert to original state
-      setProfile(p => p ? {
-        ...p,
-        isFollowing: originalState.isFollowing,
-        followersCount: originalState.followersCount
-      } : p);
-
-      // ✅ Show error feedback
-      setToast(`Failed to ${wasFollowing ? 'unfollow' : 'follow'}. Please try again.`);
+      console.error('Follow/unfollow failed:', error);
+      setToast(`Failed to ${action}. Please try again.`);
       setTimeout(() => setToast(''), 3000);
-
-    } finally {
-      setBusy(false);
     }
-  }
+  };
 
-  if (loading) {
+  // ✅ Handle modal opens with data fetching
+  const handleFollowersOpen = () => {
+    setFollowersOpen(true);
+    if (!followersData) {
+      refetchFollowers();
+    }
+  };
+
+  const handleFollowingOpen = () => {
+    setFollowingOpen(true);
+    if (!followingData) {
+      refetchFollowing();
+    }
+  };
+
+  // ✅ Loading and error states
+  if (profileLoading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-indigo-50 to-purple-50">
         <div className="max-w-5xl mx-auto px-6 py-8">
@@ -186,7 +132,7 @@ export default function PublicProfile() {
     );
   }
 
-  if (err) {
+  if (profileError) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-indigo-50 to-purple-50 flex items-center justify-center">
         <div className="text-center">
@@ -194,7 +140,7 @@ export default function PublicProfile() {
             <X size={24} className="text-red-600" />
           </div>
           <h2 className="text-xl font-bold text-gray-900 mb-2">Profile not found</h2>
-          <p className="text-gray-600">{err}</p>
+          <p className="text-gray-600">{profileError?.message || 'User not found'}</p>
         </div>
       </div>
     );
@@ -257,14 +203,14 @@ export default function PublicProfile() {
               {/* Social Stats */}
               <div className="flex gap-6">
                 <button
-                  onClick={() => setFollowersOpen(true)}
+                  onClick={handleFollowersOpen}
                   className="text-center hover:bg-gray-50 px-3 py-2 rounded-xl transition-colors"
                 >
                   <div className="text-xl font-bold text-gray-900">{profile.followersCount ?? 0}</div>
                   <div className="text-xs text-gray-500 font-medium">Followers</div>
                 </button>
                 <button
-                  onClick={() => setFollowingOpen(true)}
+                  onClick={handleFollowingOpen}
                   className="text-center hover:bg-gray-50 px-3 py-2 rounded-xl transition-colors"
                 >
                   <div className="text-xl font-bold text-gray-900">{profile.followingCount ?? 0}</div>
@@ -272,22 +218,20 @@ export default function PublicProfile() {
                 </button>
               </div>
 
-              {/* ✅ OPTIMISTIC FOLLOW BUTTON */}
-              {/* Enhanced Follow Button with Disabled State */}
+              {/* ✅ Optimistic Follow Button */}
               {!profile.isSelf && (
                 <button
                   onClick={toggleFollow}
-                  disabled={false} // ✅ Disable when following OR busy
+                  disabled={followMutation.isPending}
                   className={`flex items-center gap-2 px-6 py-3 rounded-2xl font-semibold transition-all duration-200 relative overflow-hidden group ${
                     profile.isFollowing
-                      ? 'bg-gray-300 text-gray-500 cursor-pointer' // ✅ Disabled style when following
-                      : busy 
-                        ? 'bg-gray-200 text-gray-600 cursor-wait' // ✅ Disabled style when busy
+                      ? 'bg-gray-300 text-gray-500 cursor-pointer'
+                      : followMutation.isPending 
+                        ? 'bg-gray-200 text-gray-600 cursor-wait'
                         : 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white hover:from-indigo-700 hover:to-purple-700 hover:scale-105 shadow-lg hover:shadow-xl cursor-pointer'
                   }`}
                 >
-                  {/* ✅ Show appropriate icon and text */}
-                  {busy ? (
+                  {followMutation.isPending ? (
                     <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
                   ) : profile.isFollowing ? (
                     <UserCheck size={18} />
@@ -296,14 +240,15 @@ export default function PublicProfile() {
                   )}
                   
                   <span className="relative z-10">
-                    {profile.isFollowing 
+                    {followMutation.isPending
+                      ? 'Updating...'
+                      : profile.isFollowing 
                         ? 'Following' 
                         : 'Follow'
                     }
                   </span>
                 </button>
               )}
-
             </div>
           </div>
         </div>
@@ -314,7 +259,7 @@ export default function PublicProfile() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-gray-600">Questions Created</p>
-                <p className="text-2xl font-bold text-gray-900">{subsMeta.total}</p>
+                <p className="text-2xl font-bold text-gray-900">{subsData?.total || 0}</p>
               </div>
               <div className="w-12 h-12 bg-indigo-100 rounded-xl flex items-center justify-center">
                 <Target size={24} className="text-indigo-600" />
@@ -327,7 +272,7 @@ export default function PublicProfile() {
               <div>
                 <p className="text-sm font-medium text-gray-600">Community Impact</p>
                 <p className="text-2xl font-bold text-purple-600">
-                  {profile.followersCount + (subsMeta.total * 2)}
+                  {profile.followersCount + ((subsData?.total || 0) * 2)}
                 </p>
               </div>
               <div className="w-12 h-12 bg-purple-100 rounded-xl flex items-center justify-center">
@@ -341,7 +286,7 @@ export default function PublicProfile() {
               <div>
                 <p className="text-sm font-medium text-gray-600">Engagement Score</p>
                 <p className="text-2xl font-bold text-emerald-600">
-                  {Math.min(100, Math.round((profile.followersCount * 10 + subsMeta.total * 5) / 2))}
+                  {Math.min(100, Math.round((profile.followersCount * 10 + (subsData?.total || 0) * 5) / 2))}
                 </p>
               </div>
               <div className="w-12 h-12 bg-emerald-100 rounded-xl flex items-center justify-center">
@@ -358,36 +303,15 @@ export default function PublicProfile() {
               <h2 className="text-2xl font-bold text-gray-900">Questions by {profile.username}</h2>
               <p className="text-gray-600">Deductive puzzles crafted for the community</p>
             </div>
-            {subsMeta.pages > 1 && (
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => loadSubs(Math.max(1, subsMeta.page - 1))}
-                  disabled={subsMeta.loading || subsMeta.page <= 1}
-                  className="px-4 py-2 border border-gray-200 rounded-xl disabled:opacity-50 hover:bg-gray-50 transition-colors"
-                >
-                  Previous
-                </button>
-                <span className="text-sm text-gray-500 px-3">
-                  {subsMeta.page} of {subsMeta.pages}
-                </span>
-                <button
-                  onClick={() => loadSubs(Math.min(subsMeta.pages, subsMeta.page + 1))}
-                  disabled={subsMeta.loading || subsMeta.page >= subsMeta.pages}
-                  className="px-4 py-2 border border-gray-200 rounded-xl disabled:opacity-50 hover:bg-gray-50 transition-colors"
-                >
-                  Next
-                </button>
-              </div>
-            )}
           </div>
 
-          {subsMeta.loading ? (
+          {subsLoading ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {[...Array(6)].map((_, i) => (
                 <div key={i} className="animate-pulse bg-gray-100 rounded-2xl p-4 h-32"></div>
               ))}
             </div>
-          ) : !subs.length ? (
+          ) : !subsData?.items?.length ? (
             <div className="text-center py-16">
               <div className="w-16 h-16 bg-gray-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
                 <Target size={24} className="text-gray-400" />
@@ -397,7 +321,7 @@ export default function PublicProfile() {
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {subs.map((q) => (
+              {subsData.items.map((q) => (
                 <div key={q.id} className="bg-gradient-to-br from-gray-50 to-white rounded-2xl p-5 border border-gray-100 hover:border-indigo-200 transition-all duration-200 hover:shadow-lg hover:-translate-y-1 group">
                   <div className="flex items-start gap-3 mb-3">
                     <div className="w-8 h-8 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-lg flex items-center justify-center flex-shrink-0">
@@ -435,7 +359,7 @@ export default function PublicProfile() {
               </button>
             </div>
             <div className="flex-1 overflow-auto">
-              {followersMeta.loading ? (
+              {followersLoading ? (
                 <div className="space-y-3">
                   {[...Array(5)].map((_, i) => (
                     <div key={i} className="flex items-center gap-3 animate-pulse">
@@ -444,14 +368,14 @@ export default function PublicProfile() {
                     </div>
                   ))}
                 </div>
-              ) : !followers.length ? (
+              ) : !followersData?.items?.length ? (
                 <div className="text-center py-8 text-gray-500">
                   <Users size={24} className="mx-auto mb-2 opacity-50" />
                   <p>No followers yet</p>
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {followers.map((u) => (
+                  {followersData.items.map((u) => (
                     <div key={u.id} className="flex items-center gap-3 p-2 hover:bg-gray-50 rounded-xl transition-colors">
                       <img
                         src={`https://api.dicebear.com/9.x/fun-emoji/svg?seed=${encodeURIComponent(u.avatar || 'cat')}`}
@@ -487,7 +411,7 @@ export default function PublicProfile() {
               </button>
             </div>
             <div className="flex-1 overflow-auto">
-              {followingMeta.loading ? (
+              {followingLoading ? (
                 <div className="space-y-3">
                   {[...Array(5)].map((_, i) => (
                     <div key={i} className="flex items-center gap-3 animate-pulse">
@@ -496,14 +420,14 @@ export default function PublicProfile() {
                     </div>
                   ))}
                 </div>
-              ) : !following.length ? (
+              ) : !followingData?.items?.length ? (
                 <div className="text-center py-8 text-gray-500">
                   <UserPlus size={24} className="mx-auto mb-2 opacity-50" />
                   <p>Not following anyone</p>
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {following.map((u) => (
+                  {followingData.items.map((u) => (
                     <div key={u.id} className="flex items-center gap-3 p-2 hover:bg-gray-50 rounded-xl transition-colors">
                       <img
                         src={`https://api.dicebear.com/9.x/fun-emoji/svg?seed=${encodeURIComponent(u.avatar || 'cat')}`}

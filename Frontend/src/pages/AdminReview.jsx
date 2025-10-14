@@ -1,7 +1,15 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+// src/pages/AdminReview.jsx
+import { useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { 
+  usePendingQuestionsQuery, 
+  useQuestionQuery,
+  useApproveQuestionMutation,
+  useRejectQuestionMutation 
+} from '../hooks/useQueries';
+import { patch } from '../lib/api';
 import DOMPurify from 'dompurify';
 import QuillEditor from '../components/QuillEditor';
-import { get, post, patch } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import { 
   Shield, 
@@ -16,7 +24,6 @@ import {
   AlertTriangle,
   Sparkles,
   FileText,
-  Image as ImageIcon,
   X,
   Save,
   RefreshCw
@@ -24,22 +31,15 @@ import {
 
 export default function AdminReview() {
   const { user } = useAuth();
+  const queryClient = useQueryClient();
   const canModerate = /^(admin|moderator)$/i.test(String(user?.role || ''));
 
-  // list state
-  const [items, setItems] = useState([]);
+  // ✅ Pagination state
   const [page, setPage] = useState(1);
-  const [pages, setPages] = useState(1);
-  const [total, setTotal] = useState(0);
-  const [loadingList, setLoadingList] = useState(true);
-  const [err, setErr] = useState('');
+  const [selectedQuestionId, setSelectedQuestionId] = useState(null);
+  const [showAnswer, setShowAnswer] = useState(false);
 
-  // review state
-  const [current, setCurrent] = useState(null);
-  const [reveal, setReveal] = useState(null);
-  const [loadingAnswer, setLoadingAnswer] = useState(false);
-
-  // edit modal
+  // ✅ Edit modal state
   const [editOpen, setEditOpen] = useState(false);
   const [editBodyHtml, setEditBodyHtml] = useState('');
   const [editAnswerHtml, setEditAnswerHtml] = useState('');
@@ -48,74 +48,57 @@ export default function AdminReview() {
   const [toast, setToast] = useState('');
   const [toastType, setToastType] = useState('success');
 
-  // action loading states
-  const [approving, setApproving] = useState(false);
-  const [rejecting, setRejecting] = useState(false);
+  // ✅ React Query hooks
+  const { 
+    data: questionsData, 
+    isLoading: loadingList,
+    error: listError 
+  } = usePendingQuestionsQuery(page);
 
+  const { 
+    data: selectedQuestion,
+    isLoading: loadingCurrent 
+  } = useQuestionQuery(selectedQuestionId);
+
+  const { 
+    data: fullQuestion,
+    isLoading: loadingAnswer 
+  } = useQuestionQuery(selectedQuestionId, { reveal: showAnswer });
+
+  const approveMutation = useApproveQuestionMutation();
+  const rejectMutation = useRejectQuestionMutation();
+
+  // ✅ Helper functions
   const showToast = (message, type = 'success') => {
     setToast(message);
     setToastType(type);
     setTimeout(() => setToast(''), 3000);
   };
 
-  const load = useCallback(async (p = 1) => {
-    setLoadingList(true);
-    setErr('');
-    try {
-      const qs = `?page=${p}`;
-      const data = await get(`/api/admin/questions/pending${qs}`);
-      setItems(data.items || []);
-      setPage(data.page || 1);
-      setPages(data.pages || 1);
-      setTotal(data.total || 0);
-      setCurrent(null);
-      setReveal(null);
-    } catch (e) {
-      setErr(e?.message || 'Failed to load pending questions');
-    } finally {
-      setLoadingList(false);
-    }
-  }, []);
-
-  useEffect(() => { load(1); }, [load]);
-
-  const pick = (q) => {
-    setCurrent(q);
-    setReveal(null);
+  const selectQuestion = (question) => {
+    setSelectedQuestionId(question._id || question.id);
+    setShowAnswer(false);
   };
 
-  const showAnswer = async () => {
-    if (!current) return;
-    setLoadingAnswer(true);
-    try {
-      const full = await get(`/api/questions/${current._id || current.id}?reveal=true`);
-      setReveal({
-        answer: full.answer,
-        answerImage: full.answerImage,
-        answerOneLiner: full.answerOneLiner,
-      });
-    } catch (e) {
-      showToast(e?.message || 'Failed to load answer', 'error');
-    } finally {
-      setLoadingAnswer(false);
-    }
+  const toggleAnswer = () => {
+    setShowAnswer(!showAnswer);
   };
 
-  // Edit functions
-  function openEdit() {
-    if (!current) return;
+  // ✅ Edit functions
+  const openEdit = () => {
+    if (!selectedQuestion) return;
     const toHtml = (plain) => (plain ? `<p>${String(plain).replace(/\n/g, '</p><p>')}</p>` : '<p></p>');
-    setEditBodyHtml(toHtml(current.body || ''));
-    setEditAnswerHtml(toHtml(reveal?.answer || ''));
-    setEditOneLiner(reveal?.answerOneLiner || '');
+    setEditBodyHtml(toHtml(selectedQuestion.body || ''));
+    setEditAnswerHtml(toHtml(fullQuestion?.answer || ''));
+    setEditOneLiner(fullQuestion?.answerOneLiner || '');
     setEditOpen(true);
-  }
+  };
 
-  async function saveEdit() {
-    if (!current) return;
+  const saveEdit = async () => {
+    if (!selectedQuestion) return;
     try {
       setSaving(true);
-      await patch(`/api/questions/${current._id || current.id}`, { // ✅ JWT-enabled patch
+      await patch(`/api/questions/${selectedQuestion._id || selectedQuestion.id}`, {
         bodyHtml: editBodyHtml,
         answerHtml: editAnswerHtml,
         answerOneLiner: editOneLiner,
@@ -123,59 +106,51 @@ export default function AdminReview() {
       showToast('Changes saved successfully!');
       setEditOpen(false);
       
-      // Refresh the current question
-      const refreshed = await get(`/api/questions/${current._id || current.id}`);
-      setItems((prev) => prev.map(it => (String(it._id||it.id) === String(refreshed.id) ? { ...it, body: refreshed.body } : it)));
-      setCurrent((c) => c ? { ...c, body: refreshed.body } : c);
+      // Invalidate question cache
+      queryClient.invalidateQueries({ 
+        queryKey: ['question', selectedQuestion._id || selectedQuestion.id] 
+      });
+      queryClient.invalidateQueries({ 
+        queryKey: ['admin', 'questions', 'pending'] 
+      });
     } catch (e) {
       showToast(e?.message || 'Save failed', 'error');
     } finally {
       setSaving(false);
     }
-  }
+  };
 
-  // Approve/Reject functions
-  async function approve() {
-    if (!current) return;
-    setApproving(true);
+  // ✅ Approve/Reject functions
+  const handleApprove = async () => {
+    if (!selectedQuestion) return;
+    
     try {
-      await post(`/api/admin/questions/${current._id || current.id}/approve`); // ✅ JWT-enabled post
-      setItems((prev) => prev.filter(it => String(it._id||it.id) !== String(current._id||current.id)));
-      setCurrent(null);
-      setReveal(null);
+      await approveMutation.mutateAsync(selectedQuestion._id || selectedQuestion.id);
       showToast('Question approved successfully!');
-      if (items.length === 1 && page < pages) load(page + 1);
+      setSelectedQuestionId(null);
+      setShowAnswer(false);
     } catch (e) {
       showToast(e?.message || 'Approve failed', 'error');
-    } finally {
-      setApproving(false);
     }
-  }
+  };
 
-  async function reject() {
-    if (!current) return;
+  const handleReject = async () => {
+    if (!selectedQuestion) return;
     const reason = window.prompt('Reason for rejection (optional):', '');
     if (reason === null) return; // User cancelled
     
-    setRejecting(true);
     try {
-      await post(`/api/admin/questions/${current._id || current.id}/reject`, { reason }); // ✅ JWT-enabled post
-      setItems((prev) => prev.filter(it => String(it._id||it.id) !== String(current._id||current.id)));
-      setCurrent(null);
-      setReveal(null);
+      await rejectMutation.mutateAsync({ 
+        id: selectedQuestion._id || selectedQuestion.id, 
+        reason 
+      });
       showToast('Question rejected');
-      if (items.length === 1 && page < pages) load(page + 1);
+      setSelectedQuestionId(null);
+      setShowAnswer(false);
     } catch (e) {
       showToast(e?.message || 'Reject failed', 'error');
-    } finally {
-      setRejecting(false);
     }
-  }
-
-  const pageInfo = useMemo(() => {
-    if (!total) return 'No submissions';
-    return `${total} pending submission${total === 1 ? '' : 's'}`;
-  }, [total]);
+  };
 
   if (!canModerate) {
     return (
@@ -190,6 +165,11 @@ export default function AdminReview() {
       </div>
     );
   }
+
+  const items = questionsData?.items || [];
+  const total = questionsData?.total || 0;
+  const pages = questionsData?.pages || 1;
+  const displayQuestion = showAnswer ? fullQuestion || selectedQuestion : selectedQuestion;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50">
@@ -221,14 +201,16 @@ export default function AdminReview() {
             
             <div className="text-right">
               <div className="text-2xl font-bold text-gray-900">{total}</div>
-              <div className="text-sm text-gray-600">{pageInfo}</div>
+              <div className="text-sm text-gray-600">
+                {total === 0 ? 'No submissions' : `${total} pending submission${total === 1 ? '' : 's'}`}
+              </div>
             </div>
           </div>
         </div>
 
-        {err && (
+        {listError && (
           <div className="bg-red-50 border border-red-200 text-red-700 px-6 py-4 rounded-2xl mb-8">
-            {err}
+            {listError?.message || 'Failed to load pending questions'}
           </div>
         )}
 
@@ -243,7 +225,7 @@ export default function AdminReview() {
                   <button
                     className="p-2 border border-gray-200 rounded-xl disabled:opacity-50 hover:bg-gray-50 transition-colors"
                     disabled={page <= 1 || loadingList}
-                    onClick={() => load(page - 1)}
+                    onClick={() => setPage(page - 1)}
                   >
                     <ChevronLeft size={16} />
                   </button>
@@ -251,7 +233,7 @@ export default function AdminReview() {
                   <button
                     className="p-2 border border-gray-200 rounded-xl disabled:opacity-50 hover:bg-gray-50 transition-colors"
                     disabled={page >= pages || loadingList}
-                    onClick={() => load(page + 1)}
+                    onClick={() => setPage(page + 1)}
                   >
                     <ChevronRight size={16} />
                   </button>
@@ -270,11 +252,11 @@ export default function AdminReview() {
                     <button
                       key={item._id || item.id}
                       className={`w-full text-left p-4 rounded-2xl transition-all duration-200 border ${
-                        String(current?._id || current?.id) === String(item._id || item.id)
+                        String(selectedQuestionId) === String(item._id || item.id)
                           ? 'bg-indigo-50 border-indigo-200 shadow-sm'
                           : 'bg-gray-50/50 border-gray-100 hover:bg-gray-50 hover:border-gray-200'
                       }`}
-                      onClick={() => pick(item)}
+                      onClick={() => selectQuestion(item)}
                     >
                       <div className="line-clamp-2 text-sm text-gray-800 mb-2 leading-relaxed">
                         {item.body}
@@ -303,7 +285,7 @@ export default function AdminReview() {
           {/* Review Panel */}
           <div className="lg:col-span-2">
             <div className="bg-white/80 backdrop-blur-xl rounded-3xl shadow-xl border border-white/20 p-8">
-              {!current ? (
+              {!selectedQuestion ? (
                 <div className="text-center py-16">
                   <div className="w-16 h-16 bg-gray-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
                     <FileText size={24} className="text-gray-400" />
@@ -318,22 +300,22 @@ export default function AdminReview() {
                     <div className="flex items-center gap-3">
                       <div className="w-10 h-10 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl flex items-center justify-center">
                         <span className="text-white font-bold text-sm">
-                          {current.submittedBy?.username?.[0]?.toUpperCase() || 'U'}
+                          {selectedQuestion.submittedBy?.username?.[0]?.toUpperCase() || 'U'}
                         </span>
                       </div>
                       <div>
                         <div className="font-medium text-gray-900">
-                          @{current.submittedBy?.username || 'Unknown'}
+                          @{selectedQuestion.submittedBy?.username || 'Unknown'}
                         </div>
                         <div className="text-sm text-gray-500">
-                          {new Date(current.createdAt).toLocaleDateString()}
+                          {new Date(selectedQuestion.createdAt).toLocaleDateString()}
                         </div>
                       </div>
                     </div>
 
                     <div className="flex items-center gap-3">
                       <button
-                        onClick={showAnswer}
+                        onClick={toggleAnswer}
                         disabled={loadingAnswer}
                         className="flex items-center gap-2 px-4 py-2 border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors disabled:opacity-50"
                       >
@@ -342,7 +324,7 @@ export default function AdminReview() {
                         ) : (
                           <Eye size={16} />
                         )}
-                        <span>{reveal ? 'Reload Answer' : 'Show Answer'}</span>
+                        <span>{showAnswer ? 'Reload Answer' : 'Show Answer'}</span>
                       </button>
                       
                       <button
@@ -363,11 +345,11 @@ export default function AdminReview() {
                     </h3>
                     <div className="bg-gradient-to-br from-gray-50 to-white rounded-2xl p-6 border border-gray-100">
                       <div className="prose max-w-none text-gray-800 whitespace-pre-wrap leading-relaxed">
-                        {current.body}
+                        {displayQuestion?.body}
                       </div>
-                      {current.images?.length > 0 && (
+                      {displayQuestion?.images?.length > 0 && (
                         <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
-                          {current.images.map((im, i) => (
+                          {displayQuestion.images.map((im, i) => (
                             <div key={i} className="relative group">
                               <img 
                                 src={im.url} 
@@ -382,27 +364,27 @@ export default function AdminReview() {
                   </div>
 
                   {/* Answer Content */}
-                  {reveal && (
+                  {showAnswer && fullQuestion && (
                     <div>
                       <h3 className="text-lg font-semibold text-gray-900 mb-3 flex items-center gap-2">
                         <CheckCircle size={20} className="text-emerald-500" />
                         Answer
                       </h3>
                       <div className="bg-gradient-to-br from-emerald-50 to-teal-50 rounded-2xl p-6 border border-emerald-100">
-                        {reveal.answerOneLiner && (
+                        {fullQuestion.answerOneLiner && (
                           <div className="flex items-center gap-2 mb-4 text-emerald-700">
                             <Sparkles size={16} />
-                            <span className="font-medium italic">{reveal.answerOneLiner}</span>
+                            <span className="font-medium italic">{fullQuestion.answerOneLiner}</span>
                           </div>
                         )}
                         <div className="text-gray-800 leading-relaxed mb-4">
-                          {reveal.answer}
+                          {fullQuestion.answer}
                         </div>
-                        {reveal.answerImage?.url && (
+                        {fullQuestion.answerImage?.url && (
                           <div className="mt-4">
                             <img
-                              src={reveal.answerImage.url}
-                              alt={reveal.answerImage.alt || ''}
+                              src={fullQuestion.answerImage.url}
+                              alt={fullQuestion.answerImage.alt || ''}
                               className="rounded-2xl shadow-sm max-w-full h-auto"
                             />
                           </div>
@@ -414,29 +396,29 @@ export default function AdminReview() {
                   {/* Action Buttons */}
                   <div className="flex justify-end gap-4 pt-6 border-t border-gray-100">
                     <button
-                      onClick={reject}
-                      disabled={rejecting}
+                      onClick={handleReject}
+                      disabled={rejectMutation.isPending}
                       className="flex items-center gap-2 px-6 py-3 bg-red-500 text-white rounded-2xl font-semibold hover:bg-red-600 disabled:opacity-50 transition-all duration-200 hover:scale-[1.02]"
                     >
-                      {rejecting ? (
+                      {rejectMutation.isPending ? (
                         <RefreshCw size={18} className="animate-spin" />
                       ) : (
                         <XCircle size={18} />
                       )}
-                      <span>{rejecting ? 'Rejecting...' : 'Reject'}</span>
+                      <span>{rejectMutation.isPending ? 'Rejecting...' : 'Reject'}</span>
                     </button>
 
                     <button
-                      onClick={approve}
-                      disabled={approving}
+                      onClick={handleApprove}
+                      disabled={approveMutation.isPending}
                       className="flex items-center gap-2 px-6 py-3 bg-emerald-500 text-white rounded-2xl font-semibold hover:bg-emerald-600 disabled:opacity-50 transition-all duration-200 hover:scale-[1.02]"
                     >
-                      {approving ? (
+                      {approveMutation.isPending ? (
                         <RefreshCw size={18} className="animate-spin" />
                       ) : (
                         <CheckCircle size={18} />
                       )}
-                      <span>{approving ? 'Approving...' : 'Approve'}</span>
+                      <span>{approveMutation.isPending ? 'Approving...' : 'Approve'}</span>
                     </button>
                   </div>
                 </div>
