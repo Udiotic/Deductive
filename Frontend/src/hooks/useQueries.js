@@ -1,4 +1,4 @@
-// src/hooks/useQueries.js - NEW FILE
+// src/hooks/useQueries.js - Complete replacement with all hooks
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { get, post, patch, del } from '../lib/api';
 
@@ -13,7 +13,17 @@ export function useAuthQuery() {
   });
 }
 
-// ✅ Profile Queries
+// ✅ Profile Queries (Personal Profile - /profile)
+export function useProfileQuery() {
+  return useQuery({
+    queryKey: ['profile', 'me'],
+    queryFn: () => get('/api/profile'),
+    staleTime: 10 * 60 * 1000, // 10 minutes
+    gcTime: 15 * 60 * 1000,    // 15 minutes
+  });
+}
+
+// ✅ Public Profile Queries (Public Profile - /profile/:username)
 export function usePublicProfileQuery(username) {
   return useQuery({
     queryKey: ['profile', 'public', username],
@@ -23,6 +33,7 @@ export function usePublicProfileQuery(username) {
   });
 }
 
+// ✅ User Submissions (Public)
 export function useUserSubmissionsQuery(username, page = 1, limit = 12) {
   return useQuery({
     queryKey: ['submissions', 'user', username, page, limit],
@@ -32,6 +43,16 @@ export function useUserSubmissionsQuery(username, page = 1, limit = 12) {
   });
 }
 
+// ✅ My Submissions (Personal)
+export function useMySubmissionsQuery(page = 1, limit = 12) {
+  return useQuery({
+    queryKey: ['submissions', 'me', page, limit],
+    queryFn: () => get(`/api/questions/mine?page=${page}&limit=${limit}`),
+    staleTime: 2 * 60 * 1000, // 2 minutes
+  });
+}
+
+// ✅ Followers/Following Queries
 export function useFollowersQuery(username) {
   return useQuery({
     queryKey: ['followers', username],
@@ -126,6 +147,22 @@ export function useFollowMutation(username) {
   });
 }
 
+// ✅ Profile Update Mutation
+export function useUpdateProfileMutation() {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: (data) => patch('/api/profile', data),
+    onSuccess: (updatedProfile) => {
+      // Update the profile cache with new data
+      queryClient.setQueryData(['profile', 'me'], updatedProfile);
+      // Also invalidate to ensure consistency
+      queryClient.invalidateQueries({ queryKey: ['profile', 'me'] });
+    },
+  });
+}
+
+// ✅ Admin Mutations
 export function useApproveQuestionMutation() {
   const queryClient = useQueryClient();
   

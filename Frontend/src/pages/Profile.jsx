@@ -1,6 +1,14 @@
-import { useEffect, useMemo, useState } from 'react';
-import { get, patch} from '../lib/api';
-
+// src/pages/Profile.jsx - Complete replacement
+import { useMemo, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { 
+  useProfileQuery,
+  useMySubmissionsQuery,
+  useFollowersQuery,
+  useFollowingQuery,
+  useUpdateProfileMutation,
+  usePublicProfileQuery
+} from '../hooks/useQueries';
 import { 
   User, 
   Users, 
@@ -20,7 +28,6 @@ import {
   X
 } from 'lucide-react';
 
-
 const AVATARS = [
   { key: 'robot', url: 'https://api.dicebear.com/9.x/bottts/svg?seed=deductive', name: 'Robot' },
   { key: 'cat', url: 'https://api.dicebear.com/9.x/fun-emoji/svg?seed=cat', name: 'Cat' },
@@ -30,165 +37,103 @@ const AVATARS = [
 ];
 
 export default function Profile() {
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [err, setErr] = useState('');
-  const [toast, setToast] = useState('');
+  const queryClient = useQueryClient();
 
-  // profile data
-  const [username, setUsername] = useState('');
-  const [email, setEmail] = useState('');
-  const [role, setRole] = useState('user');
-  const [verified, setVerified] = useState(false);
-  const [createdAt, setCreatedAt] = useState('');
-  const [avatar, setAvatar] = useState('robot');
+  // ✅ React Query hooks
+  const { 
+    data: profile, 
+    isLoading: profileLoading, 
+    error: profileError 
+  } = useProfileQuery();
 
-  // social counts
-  const [followersCount, setFollowersCount] = useState(0);
-  const [followingCount, setFollowingCount] = useState(0);
+  const { 
+    data: submissionsData, 
+    isLoading: submissionsLoading 
+  } = useMySubmissionsQuery(1, 12);
 
-  // modals
+  const { 
+    data: followersData, 
+    isLoading: followersLoading,
+    refetch: refetchFollowers
+  } = useFollowersQuery(profile?.username);
+
+  const { 
+    data: followingData, 
+    isLoading: followingLoading,
+    refetch: refetchFollowing
+  } = useFollowingQuery(profile?.username);
+
+  const updateProfileMutation = useUpdateProfileMutation();
+
+  // ✅ Modal states
   const [followersOpen, setFollowersOpen] = useState(false);
   const [followingOpen, setFollowingOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pendingAvatar, setPendingAvatar] = useState('robot');
+  const [toast, setToast] = useState('');
+  const [err, setErr] = useState('');
 
-  // followers/following data
-  const [followers, setFollowers] = useState([]);
-  const [following, setFollowing] = useState([]);
-  const [followersMeta, setFollowersMeta] = useState({ loading: false });
-  const [followingMeta, setFollowingMeta] = useState({ loading: false });
+  // ✅ Get social counts from public profile
+  const { data: publicProfile } = usePublicProfileQuery(profile?.username);
 
-  // submissions
-  const [subs, setSubs] = useState([]);
-  const [subsPage, setSubsPage] = useState(1);
-  const [subsPages, setSubsPages] = useState(1);
-  const [subsTotal, setSubsTotal] = useState(0);
-  const [subsLoading, setSubsLoading] = useState(true);
+  const followersCount = publicProfile?.followersCount ?? 0;
+  const followingCount = publicProfile?.followingCount ?? 0;
 
-  // Load profile data
-  useEffect(() => {
-    const token = localStorage.getItem('authToken');
-  if (token) {
-    try {
-      // Decode JWT to see what's inside (without verification)
-      const payload = JSON.parse(atob(token.split('.')[1]));
-    } catch (e) {
-      console.log('🔍 Invalid JWT format:', e);
-    }}
-    (async () => {
-      try {
-        setLoading(true);
-        const p = await get('/api/profile');
-        setUsername(p.username);
-        setEmail(p.email);
-        setRole(p.role);
-        setVerified(!!p.verified);
-        setAvatar(p.avatar || 'robot');
-        setPendingAvatar(p.avatar || 'robot');
-        setCreatedAt(p.createdAt);
-
-        if (p?.username) {
-          try {
-            const pub = await get(`/api/users/${encodeURIComponent(p.username)}/profile`);
-            setFollowersCount(pub.followersCount ?? 0);
-            setFollowingCount(pub.followingCount ?? 0);
-          } catch {
-            // ignore
-          }
-        }
-      } catch (e) {
-        setErr(e?.message || 'Failed to load profile');
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, []);
-
-  // Load submissions
-  const loadSubs = async (page = 1) => {
-  try {
-    setSubsLoading(true);
-    const data = await get(`/api/questions/mine?page=${page}&limit=12`);
-    setSubs(data.items || []);
-    setSubsPage(data.page || 1);
-    setSubsPages(data.pages || 1);
-    setSubsTotal(data.total || 0);
-  } catch (error) {
-    console.error('🔍 Load submissions error:', error);
-  } finally {
-    setSubsLoading(false);
-  }
-};
-  useEffect(() => { loadSubs(1); }, []);
-
-  // Load followers/following when modals open
-  useEffect(() => {
-    if (!followersOpen || !username) return;
-    (async () => {
-      setFollowersMeta({ loading: true });
-      try {
-        const res = await get(`/api/users/${encodeURIComponent(username)}/followers?page=1&limit=20`);
-        setFollowers(res.items || []);
-        setFollowersMeta({ loading: false });
-      } catch {
-        setFollowersMeta({ loading: false });
-      }
-    })();
-  }, [followersOpen, username]);
-
-  useEffect(() => {
-    if (!followingOpen || !username) return;
-    (async () => {
-      setFollowingMeta({ loading: true });
-      try {
-        const res = await get(`/api/users/${encodeURIComponent(username)}/following?page=1&limit=20`);
-        setFollowing(res.items || []);
-        setFollowingMeta({ loading: false });
-      } catch {
-        setFollowingMeta({ loading: false });
-      }
-    })();
-  }, [followingOpen, username]);
-
-  const joinedStr = useMemo(
-    () => (createdAt ? new Date(createdAt).toLocaleDateString('en-US', { 
+  // ✅ Computed values
+  const joinedStr = useMemo(() => {
+    if (!profile?.createdAt) return '';
+    return new Date(profile.createdAt).toLocaleDateString('en-US', { 
       year: 'numeric', 
       month: 'long' 
-    }) : ''),
-    [createdAt]
-  );
+    });
+  }, [profile?.createdAt]);
 
   const currentAvatarUrl = useMemo(() =>
-    AVATARS.find(a => a.key === avatar)?.url ||
+    AVATARS.find(a => a.key === (profile?.avatar || 'robot'))?.url ||
     'https://api.dicebear.com/9.x/bottts/svg?seed=deductive',
-    [avatar]
+    [profile?.avatar]
   );
 
-  // Stats calculations
+  // ✅ Stats calculations
+  const subs = submissionsData?.items || [];
+  const subsTotal = submissionsData?.total || 0;
   const approvedCount = subs.filter(s => s.status === 'approved').length;
   const pendingCount = subs.filter(s => s.status === 'pending').length;
   const rejectedCount = subs.filter(s => s.status === 'rejected').length;
 
-  async function save() {
-  if (pendingAvatar === avatar) return;
-  try {
-    setSaving(true);
-    setErr('');
-    // ✅ Use JWT-enabled patch function instead of patchJson
-    const p = await patch('/api/profile', { avatar: pendingAvatar });
-    setAvatar(p.avatar || 'robot');
-    setToast('Avatar updated successfully!');
-    setTimeout(() => setToast(''), 3000);
-    setPickerOpen(false);
-  } catch (e) {
-    setErr(e?.message || 'Update failed');
-  } finally {
-    setSaving(false);
-  }
-}
+  // ✅ Handle modal opens with data fetching
+  const handleFollowersOpen = () => {
+    setFollowersOpen(true);
+    if (!followersData) {
+      refetchFollowers();
+    }
+  };
 
-  if (loading) {
+  const handleFollowingOpen = () => {
+    setFollowingOpen(true);
+    if (!followingData) {
+      refetchFollowing();
+    }
+  };
+
+  // ✅ Avatar update function
+  const updateAvatar = async () => {
+    if (pendingAvatar === profile?.avatar) return;
+    
+    try {
+      await updateProfileMutation.mutateAsync({ avatar: pendingAvatar });
+      setToast('Avatar updated successfully!');
+      setTimeout(() => setToast(''), 3000);
+      setPickerOpen(false);
+      setErr('');
+    } catch (e) {
+      setErr(e?.message || 'Update failed');
+      setTimeout(() => setErr(''), 3000);
+    }
+  };
+
+  // ✅ Loading state
+  if (profileLoading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-indigo-50 to-purple-50">
         <div className="max-w-6xl mx-auto px-6 py-8">
@@ -212,6 +157,23 @@ export default function Profile() {
       </div>
     );
   }
+
+  // ✅ Error state
+  if (profileError) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-indigo-50 to-purple-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-16 h-16 bg-red-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+            <X size={24} className="text-red-600" />
+          </div>
+          <h2 className="text-xl font-bold text-gray-900 mb-2">Failed to load profile</h2>
+          <p className="text-gray-600">{profileError?.message || 'Please try again'}</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!profile) return null;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50">
@@ -241,7 +203,10 @@ export default function Profile() {
             <div className="flex-shrink-0">
               <div className="relative group">
                 <button
-                  onClick={() => setPickerOpen(true)}
+                  onClick={() => {
+                    setPendingAvatar(profile.avatar || 'robot');
+                    setPickerOpen(true);
+                  }}
                   className="block w-24 h-24 rounded-2xl overflow-hidden border-4 border-indigo-100 hover:border-indigo-300 transition-all duration-200 group-hover:scale-105"
                 >
                   <img 
@@ -262,9 +227,9 @@ export default function Profile() {
             {/* Profile Info */}
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-3 mb-2">
-                <h1 className="text-3xl font-bold text-gray-900 truncate">{username}</h1>
+                <h1 className="text-3xl font-bold text-gray-900 truncate">{profile.username}</h1>
                 <div className="flex items-center gap-2">
-                  {verified ? (
+                  {profile.verified ? (
                     <div className="flex items-center gap-1 px-2 py-1 bg-emerald-100 text-emerald-700 rounded-full text-xs font-medium">
                       <CheckCircle size={12} />
                       Verified
@@ -276,12 +241,12 @@ export default function Profile() {
                     </div>
                   )}
                   <div className="px-2 py-1 bg-indigo-100 text-indigo-700 rounded-full text-xs font-medium capitalize">
-                    {role}
+                    {profile.role}
                   </div>
                 </div>
               </div>
               
-              <p className="text-gray-600 mb-3 truncate">{email}</p>
+              <p className="text-gray-600 mb-3 truncate">{profile.email}</p>
               
               <div className="flex items-center gap-2 text-sm text-gray-500">
                 <Calendar size={16} />
@@ -292,14 +257,14 @@ export default function Profile() {
             {/* Social Stats */}
             <div className="flex gap-6">
               <button
-                onClick={() => setFollowersOpen(true)}
+                onClick={handleFollowersOpen}
                 className="text-center hover:bg-gray-50 px-4 py-2 rounded-xl transition-colors"
               >
                 <div className="text-2xl font-bold text-gray-900">{followersCount}</div>
                 <div className="text-xs text-gray-500 font-medium">Followers</div>
               </button>
               <button
-                onClick={() => setFollowingOpen(true)}
+                onClick={handleFollowingOpen}
                 className="text-center hover:bg-gray-50 px-4 py-2 rounded-xl transition-colors"
               >
                 <div className="text-2xl font-bold text-gray-900">{followingCount}</div>
@@ -389,30 +354,9 @@ export default function Profile() {
               <h2 className="text-2xl font-bold text-gray-900">Your Questions</h2>
               <p className="text-gray-600">Track the status of your submitted questions</p>
             </div>
-            {subsPages > 1 && (
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => loadSubs(Math.max(1, subsPage - 1))}
-                  disabled={subsLoading || subsPage <= 1}
-                  className="px-4 py-2 border border-gray-200 rounded-xl disabled:opacity-50 hover:bg-gray-50 transition-colors"
-                >
-                  Previous
-                </button>
-                <span className="text-sm text-gray-500 px-3">
-                  {subsPage} of {subsPages}
-                </span>
-                <button
-                  onClick={() => loadSubs(Math.min(subsPages, subsPage + 1))}
-                  disabled={subsLoading || subsPage >= subsPages}
-                  className="px-4 py-2 border border-gray-200 rounded-xl disabled:opacity-50 hover:bg-gray-50 transition-colors"
-                >
-                  Next
-                </button>
-              </div>
-            )}
           </div>
 
-          {subsLoading ? (
+          {submissionsLoading ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {[...Array(6)].map((_, i) => (
                 <div key={i} className="animate-pulse bg-gray-100 rounded-2xl p-4 h-32"></div>
@@ -502,7 +446,7 @@ export default function Profile() {
             <div className="flex gap-3">
               <button
                 onClick={() => {
-                  setPendingAvatar(avatar);
+                  setPendingAvatar(profile.avatar || 'robot');
                   setPickerOpen(false);
                 }}
                 className="flex-1 px-4 py-3 border border-gray-200 rounded-2xl font-medium text-gray-700 hover:bg-gray-50 transition-colors"
@@ -510,11 +454,11 @@ export default function Profile() {
                 Cancel
               </button>
               <button
-                onClick={save}
-                disabled={pendingAvatar === avatar || saving}
+                onClick={updateAvatar}
+                disabled={pendingAvatar === profile.avatar || updateProfileMutation.isPending}
                 className="flex-1 px-4 py-3 bg-indigo-600 text-white rounded-2xl font-semibold hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
-                {saving ? 'Saving...' : 'Save Avatar'}
+                {updateProfileMutation.isPending ? 'Saving...' : 'Save Avatar'}
               </button>
             </div>
           </div>
@@ -535,7 +479,7 @@ export default function Profile() {
               </button>
             </div>
             <div className="flex-1 overflow-auto">
-              {followersMeta.loading ? (
+              {followersLoading ? (
                 <div className="space-y-3">
                   {[...Array(5)].map((_, i) => (
                     <div key={i} className="flex items-center gap-3 animate-pulse">
@@ -544,14 +488,14 @@ export default function Profile() {
                     </div>
                   ))}
                 </div>
-              ) : !followers.length ? (
+              ) : !followersData?.items?.length ? (
                 <div className="text-center py-8 text-gray-500">
                   <Users size={24} className="mx-auto mb-2 opacity-50" />
                   <p>No followers yet</p>
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {followers.map((u) => (
+                  {followersData.items.map((u) => (
                     <div key={u.id} className="flex items-center gap-3 p-2 hover:bg-gray-50 rounded-xl transition-colors">
                       <img
                         src={`https://api.dicebear.com/9.x/fun-emoji/svg?seed=${encodeURIComponent(u.avatar || 'cat')}`}
@@ -587,7 +531,7 @@ export default function Profile() {
               </button>
             </div>
             <div className="flex-1 overflow-auto">
-              {followingMeta.loading ? (
+              {followingLoading ? (
                 <div className="space-y-3">
                   {[...Array(5)].map((_, i) => (
                     <div key={i} className="flex items-center gap-3 animate-pulse">
@@ -596,14 +540,14 @@ export default function Profile() {
                     </div>
                   ))}
                 </div>
-              ) : !following.length ? (
+              ) : !followingData?.items?.length ? (
                 <div className="text-center py-8 text-gray-500">
                   <UserPlus size={24} className="mx-auto mb-2 opacity-50" />
                   <p>Not following anyone</p>
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {following.map((u) => (
+                  {followingData.items.map((u) => (
                     <div key={u.id} className="flex items-center gap-3 p-2 hover:bg-gray-50 rounded-xl transition-colors">
                       <img
                         src={`https://api.dicebear.com/9.x/fun-emoji/svg?seed=${encodeURIComponent(u.avatar || 'cat')}`}

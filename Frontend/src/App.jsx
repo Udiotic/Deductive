@@ -22,14 +22,12 @@ import Header from './components/Header';
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 5 * 60 * 1000, // 5 minutes - data stays fresh
-      gcTime: 10 * 60 * 1000, // 10 minutes - cache cleanup (was cacheTime)
-      refetchOnWindowFocus: false, // Don't refetch on window focus
-      retry: (failureCount, error) => {
-        // Don't retry on 401/403 errors
-        if (error?.status === 401 || error?.status === 403) return false;
-        return failureCount < 3;
-      },
+      staleTime: 10 * 60 * 1000, // 10 minutes
+      gcTime: 15 * 60 * 1000,    // 15 minutes
+      refetchOnWindowFocus: false,
+      refetchOnMount: false,      // ✅ This was causing refresh to refetch
+      refetchOnReconnect: false,  // ✅ Don't refetch on reconnect
+      retry: false,
     },
   },
 });
@@ -150,7 +148,7 @@ export default function App() {
         </BrowserRouter>
       </AuthProvider>
       {/* ✅ Add DevTools for monitoring cache performance */}
-      <ReactQueryDevtools initialIsOpen={false} />
+      <ReactQueryDevtools initialIsOpen={true} />
     </QueryClientProvider>
   );
 }

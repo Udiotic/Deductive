@@ -25,6 +25,8 @@ import {
 
 export default function PublicProfile() {
   const { username } = useParams();
+
+  
   const queryClient = useQueryClient();
 
   // ✅ React Query hooks replace all useState/useEffect
