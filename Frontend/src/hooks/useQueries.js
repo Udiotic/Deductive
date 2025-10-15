@@ -73,15 +73,19 @@ export function useFollowingQuery(username) {
 
 // ✅ Question Queries
 export function useRandomQuestionQuery(excludeIds = []) {
-  const query = excludeIds.length
-    ? '?' + new URLSearchParams(excludeIds.map(id => ['excludeIds', id])).toString()
-    : '';
-    
   return useQuery({
-    queryKey: ['question', 'random', excludeIds.sort()], // Sort for consistent caching
-    queryFn: () => get('/api/questions/random' + query),
-    staleTime: 30 * 1000, // 30 seconds - questions can be reused shortly
-    gcTime: 5 * 60 * 1000, // 5 minutes
+    queryKey: ['question', 'random', excludeIds.sort().join(',')], // ✅ Stable key based on sorted excludeIds
+    queryFn: async () => {
+      const query = excludeIds.length
+        ? '?' + new URLSearchParams(excludeIds.map(id => ['excludeIds', id])).toString()
+        : '';
+      console.log('🌐 API CALL: Fetching random question, excluding:', excludeIds);
+      return get('/api/questions/random' + query);
+    },
+    staleTime: 30 * 1000, // 30 seconds
+    gcTime: 10 * 60 * 1000, // 10 minutes
+    // ✅ Only fetch when we have questions to exclude or it's the first time
+    enabled: excludeIds.length > 0 || excludeIds.length === 0,
   });
 }
 

@@ -1,9 +1,9 @@
-// src/pages/Play.jsx - Updated with better caching logic
-import { useState, useMemo, useEffect } from 'react';
+// src/pages/Play.jsx - Back to basics, but with proper caching
+import { useEffect, useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { useRandomQuestionQuery, useQuestionQuery } from '../hooks/useQueries';
-import { patch, get } from '../lib/api';
+import { patch } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import QuillEditor from '../components/QuillEditor';
 import { 
@@ -24,12 +24,13 @@ export default function Play() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
 
-  // ✅ Game state - simplified
-  const [questionHistory, setQuestionHistory] = useState([]);
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const [showAnswer, setShowAnswer] = useState(false);
+  // ✅ Simple state - back to your original approach
+  const [stack, setStack] = useState([]);
+  const [idx, setIdx] = useState(-1);
+  const [loading, setLoading] = useState(false);
+  const [reveal, setReveal] = useState(null);
   const [showCelebration, setShowCelebration] = useState(false);
-  const [needsNewQuestion, setNeedsNewQuestion] = useState(true);
+  const current = idx >= 0 ? stack[idx] : null;
 
   // ✅ Admin edit state
   const [editOpen, setEditOpen] = useState(false);
@@ -39,159 +40,177 @@ export default function Play() {
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState('');
 
-  // ✅ Only fetch new random question when we actually need one
-  const excludeIds = questionHistory.slice(-10); // Last 10 questions
-  const { 
-    data: randomQuestion, 
-    isLoading: loadingRandom,
-    error: randomError
-  } = useRandomQuestionQuery(excludeIds);
-
-  // ✅ Get current question from history
-  const currentQuestionId = questionHistory[currentIndex] || null;
-
-  // ✅ Fetch current question details (this will be cached)
-  const { 
-    data: currentQuestion, 
-    isLoading: loadingCurrent 
-  } = useQuestionQuery(currentQuestionId, { reveal: false });
-
-  // ✅ Fetch full question with answer when revealing
-  const { 
-    data: fullQuestion, 
-    isLoading: loadingAnswer,
-  } = useQuestionQuery(currentQuestionId, { reveal: showAnswer });
-
-  // ✅ Add new question to history when we get one
-  useEffect(() => {
-    if (randomQuestion && needsNewQuestion) {
-      console.log('🎮 Adding new question to history:', randomQuestion.id);
-      setQuestionHistory(prev => [...prev, randomQuestion.id]);
-      if (questionHistory.length === 0) {
-        setCurrentIndex(0);
-      }
-      setNeedsNewQuestion(false);
+  // ✅ Simple question fetching - only when we need new ones
+  const fetchRandom = useCallback(async () => {
+    setLoading(true);
+    setReveal(null);
+    
+    try {
+      // Use the query client to fetch and cache
+      const lastIds = stack.slice(-10).map(q => q.id);
+      const excludeIds = Array.from(new Set(lastIds));
       
-      // Prefetch the full version for answer reveal
-      queryClient.prefetchQuery({
-        queryKey: ['question', randomQuestion.id, 'full'],
-        queryFn: () => get(`/api/questions/${randomQuestion.id}?reveal=true`),
-      });
-    }
-  }, [randomQuestion, needsNewQuestion, questionHistory.length, queryClient]);
-
-  // ✅ Navigation functions
-  const goNext = () => {
-    console.log('🎮 Going to next question');
-    setShowAnswer(false);
-    setShowCelebration(false);
-    
-    if (currentIndex < questionHistory.length - 1) {
-      // Go to next question in history (cached)
-      console.log('🎮 Moving to next in history');
-      setCurrentIndex(currentIndex + 1);
-    } else {
-      // Need to fetch a new random question
-      console.log('🎮 Need new question, triggering fetch');
-      setNeedsNewQuestion(true);
-      if (questionHistory.length > 0) {
-        setCurrentIndex(questionHistory.length); // Will be updated when new question arrives
+      // ✅ Create a simple cache key based on excluded IDs
+      const cacheKey = ['question', 'random', excludeIds.sort().join(',')];
+      
+      // ✅ Try to get from cache first
+      let q = queryClient.getQueryData(cacheKey);
+      
+      if (!q) {
+        // ✅ Not in cache, fetch from API
+        console.log('🌐 API CALL: Fetching random question');
+        const query = excludeIds.length
+          ? '?' + new URLSearchParams(excludeIds.map(id => ['excludeIds', id]))
+          : '';
+        
+        const response = await fetch(`/api/questions/random${query}`, {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('authToken')}`,
+          },
+        });
+        
+        if (!response.ok) throw new Error('Failed to fetch question');
+        q = await response.json();
+        
+        // ✅ Cache the result
+        queryClient.setQueryData(cacheKey, q, {
+          staleTime: 5 * 60 * 1000, // 5 minutes
+        });
+      } else {
+        console.log('🚀 Using cached question');
       }
-    }
-  };
 
-  const goBack = () => {
-    if (currentIndex > 0) {
-      console.log('🎮 Going back in history');
-      setCurrentIndex(currentIndex - 1);
-      setShowAnswer(false);
+      setStack(prev => [...prev.slice(0, idx + 1), q]);
+      setIdx(prev => prev + 1);
+    } catch (error) {
+      console.error('Failed to fetch question:', error);
+    } finally {
+      setLoading(false);
+    }
+  }, [stack, idx, queryClient]);
+
+  // ✅ Answer reveal with caching
+  async function toggleAnswer() {
+    if (!current) return;
+    if (reveal) { 
+      setReveal(null); 
       setShowCelebration(false);
+      return; 
     }
-  };
-
-  // ✅ Answer reveal
-  const toggleAnswer = () => {
-    if (!currentQuestion) return;
     
-    if (showAnswer) {
-      setShowAnswer(false);
-      setShowCelebration(false);
-    } else {
-      console.log('🎮 Revealing answer for question:', currentQuestion.id);
-      setShowAnswer(true);
+    setLoading(true);
+    try {
+      // ✅ Try cache first
+      const cacheKey = ['question', current.id, 'full'];
+      let full = queryClient.getQueryData(cacheKey);
+      
+      if (!full) {
+        console.log('🌐 API CALL: Fetching answer');
+        const response = await fetch(`/api/questions/${current.id}?reveal=true`, {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('authToken')}`,
+          },
+        });
+        
+        if (!response.ok) throw new Error('Failed to fetch answer');
+        full = await response.json();
+        
+        // ✅ Cache the answer
+        queryClient.setQueryData(cacheKey, full, {
+          staleTime: Infinity, // Answers never change
+        });
+      } else {
+        console.log('🚀 Using cached answer');
+      }
+      
+      setReveal({
+        answer: full.answer,
+        answerImage: full.answerImage,
+        answerOneLiner: full.answerOneLiner,
+      });
+      
       setShowCelebration(true);
       setTimeout(() => setShowCelebration(false), 2000);
+    } catch (error) {
+      console.error('Failed to fetch answer:', error);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // ✅ Load first question
+  useEffect(() => {
+    fetchRandom();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ✅ Navigation
+  const goBack = () => {
+    setReveal(null);
+    setShowCelebration(false);
+    setIdx(i => Math.max(0, i - 1));
+  };
+
+  const goNext = () => {
+    setShowCelebration(false);
+    if (idx < stack.length - 1) {
+      // ✅ Use cached question from stack
+      console.log('🚀 Using question from stack (cached)');
+      setReveal(null);
+      setIdx(i => i + 1);
+    } else {
+      // ✅ Fetch new question
+      fetchRandom();
     }
   };
 
-  // ✅ Admin edit functions (unchanged)
-  const openEdit = () => {
-    if (!currentQuestion) return;
+  // ✅ Admin functions (unchanged)
+  function openEdit() {
+    if (!current) return;
     const toHtml = (plain) =>
       plain ? `<p>${String(plain).replace(/\n/g, '</p><p>')}</p>` : '<p></p>';
 
-    setEditBodyHtml(toHtml(currentQuestion.body));
-    setEditAnswerHtml(toHtml(fullQuestion?.answer || ''));
-    setEditOneLiner(fullQuestion?.answerOneLiner || '');
+    setEditBodyHtml(toHtml(current.body));
+    setEditAnswerHtml(toHtml(reveal?.answer || ''));
+    setEditOneLiner(reveal?.answerOneLiner || '');
     setEditOpen(true);
-  };
+  }
 
-  const saveEdit = async () => {
-    if (!currentQuestion) return;
+  async function saveEdit() {
+    if (!current) return;
     try {
       setSaving(true);
-      await patch(`/api/questions/${currentQuestion.id}`, {
+      await patch(`/api/questions/${current.id}`, {
         bodyHtml: editBodyHtml,
         answerHtml: editAnswerHtml,
         answerOneLiner: editOneLiner,
       });
       setEditOpen(false);
-      setShowAnswer(false);
+      setReveal(null);
       setToast('Changes saved successfully!');
-
-      queryClient.invalidateQueries({ queryKey: ['question', currentQuestion.id] });
+      
+      // Invalidate cache for this question
+      queryClient.removeQueries(['question', current.id]);
+      
       setTimeout(() => setToast(''), 3000);
     } catch (e) {
       alert(e?.message || 'Save failed');
     } finally {
       setSaving(false);
     }
-  };
+  }
 
-  // ✅ Loading states
-  const isInitialLoad = questionHistory.length === 0 && loadingRandom;
-  const isWaitingForNewQuestion = needsNewQuestion && loadingRandom;
-  const isLoadingCurrentQuestion = loadingCurrent && !!currentQuestionId;
-
-  if (isInitialLoad) {
+  // ✅ Loading state
+  if (!current && loading) {
     return (
       <div className="min-h-[80vh] bg-gradient-to-br from-indigo-50 to-purple-50 flex items-center justify-center">
         <div className="text-center">
           <div className="w-12 h-12 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-lg text-gray-600">Loading your first challenge...</p>
+          <p className="text-lg text-gray-600">Loading your next challenge...</p>
         </div>
       </div>
     );
   }
-
-  if (randomError && questionHistory.length === 0) {
-    return (
-      <div className="min-h-[80vh] bg-gradient-to-br from-indigo-50 to-purple-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="text-xl text-gray-600 mb-4">Failed to load questions</div>
-          <button
-            onClick={() => setNeedsNewQuestion(true)}
-            className="px-6 py-3 bg-indigo-600 text-white rounded-2xl font-semibold hover:bg-indigo-700 transition-all"
-          >
-            Try Again
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  // ✅ Get display data
-  const displayQuestion = showAnswer ? (fullQuestion || currentQuestion) : currentQuestion;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50">
@@ -201,7 +220,7 @@ export default function Play() {
           <div className="flex items-center justify-between">
             <button
               onClick={goBack}
-              disabled={currentIndex <= 0}
+              disabled={loading || idx <= 0}
               className="flex items-center gap-2 px-4 py-2 text-gray-600 hover:text-gray-900 hover:bg-gray-50 rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <ChevronLeft size={20} />
@@ -209,23 +228,17 @@ export default function Play() {
             </button>
 
             <div className="text-center">
-              <div className="text-2xl font-bold text-gray-900">Question {currentIndex + 1}</div>
+              <div className="text-2xl font-bold text-gray-900">Question {Math.max(0, idx) + 1}</div>
               <div className="text-sm text-gray-500">Keep that brain working!</div>
             </div>
 
             <button
               onClick={goNext}
-              disabled={isWaitingForNewQuestion}
+              disabled={loading}
               className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white hover:bg-indigo-700 rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <span className="font-medium">
-                {isWaitingForNewQuestion ? 'Loading...' : 'Next'}
-              </span>
-              {isWaitingForNewQuestion ? (
-                <RefreshCw size={20} className="animate-spin" />
-              ) : (
-                <ChevronRight size={20} />
-              )}
+              <span className="font-medium">{loading ? 'Loading...' : 'Next'}</span>
+              {loading ? <RefreshCw size={20} className="animate-spin" /> : <ChevronRight size={20} />}
             </button>
           </div>
         </div>
@@ -254,13 +267,7 @@ export default function Play() {
 
       {/* Main Content */}
       <div className="max-w-4xl mx-auto px-6 py-8">
-        {/* Show loading only when actually loading current question */}
-        {isLoadingCurrentQuestion ? (
-          <div className="text-center py-16">
-            <div className="w-12 h-12 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin mx-auto mb-4"></div>
-            <p className="text-lg text-gray-600">Loading question...</p>
-          </div>
-        ) : displayQuestion ? (
+        {current ? (
           <div className="space-y-8">
             {/* Question Card */}
             <div className="bg-white/80 backdrop-blur-sm rounded-3xl shadow-xl border border-white/20 overflow-hidden">
@@ -279,14 +286,14 @@ export default function Play() {
                 {/* Question Content */}
                 <div className="prose prose-lg max-w-none mb-8">
                   <div className="text-xl leading-relaxed text-gray-800 whitespace-pre-wrap font-medium">
-                    {displayQuestion.body}
+                    {current.body}
                   </div>
                 </div>
 
                 {/* Question Images */}
-                {displayQuestion.images?.length > 0 && (
+                {current.images?.length > 0 && (
                   <div className="mb-8 grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {displayQuestion.images.map((im, i) => (
+                    {current.images.map((im, i) => (
                       <div key={i} className="group relative overflow-hidden rounded-2xl">
                         <img 
                           src={im.url} 
@@ -302,27 +309,22 @@ export default function Play() {
                 <div className="flex flex-wrap items-center gap-4 mb-6">
                   <button
                     onClick={toggleAnswer}
-                    disabled={loadingAnswer && showAnswer && !fullQuestion}
+                    disabled={loading}
                     className={`flex items-center gap-3 px-8 py-4 rounded-2xl font-semibold text-lg transition-all duration-300 ${
-                      showAnswer 
+                      reveal 
                         ? 'bg-gray-100 text-gray-700 hover:bg-gray-200' 
                         : 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white hover:from-indigo-700 hover:to-purple-700 hover:scale-105 shadow-lg hover:shadow-xl'
                     } disabled:opacity-50 disabled:cursor-not-allowed`}
                   >
-                    {loadingAnswer && showAnswer && !fullQuestion ? (
+                    {loading ? (
                       <RefreshCw size={24} className="animate-spin" />
-                    ) : showAnswer ? (
+                    ) : reveal ? (
                       <EyeOff size={24} />
                     ) : (
                       <Eye size={24} />
                     )}
                     <span>
-                      {loadingAnswer && showAnswer && !fullQuestion
-                        ? 'Loading Answer...' 
-                        : showAnswer 
-                          ? 'Hide Answer' 
-                          : 'Reveal Answer'
-                      }
+                      {loading ? 'Loading...' : reveal ? 'Hide Answer' : 'Reveal Answer'}
                     </span>
                   </button>
 
@@ -339,13 +341,13 @@ export default function Play() {
                 </div>
 
                 {/* Answer Reveal */}
-                {showAnswer && fullQuestion && (
+                {reveal && (
                   <div className="animate-in slide-in-from-bottom duration-500 border-t border-gray-100 pt-8">
                     <div className="bg-gradient-to-br from-emerald-50 to-teal-50 rounded-2xl p-6 border border-emerald-100">
-                      {fullQuestion.answerOneLiner && (
+                      {reveal.answerOneLiner && (
                         <div className="flex items-center gap-2 mb-4 text-emerald-700">
                           <CheckCircle size={20} />
-                          <span className="text-lg font-medium italic">{fullQuestion.answerOneLiner}</span>
+                          <span className="text-lg font-medium italic">{reveal.answerOneLiner}</span>
                         </div>
                       )}
                       
@@ -355,15 +357,15 @@ export default function Play() {
                           The Answer
                         </h3>
                         <div className="text-lg text-gray-800 leading-relaxed">
-                          {fullQuestion.answer}
+                          {reveal.answer}
                         </div>
                       </div>
 
-                      {fullQuestion.answerImage?.url && (
+                      {reveal.answerImage?.url && (
                         <div className="mt-6">
                           <img
-                            src={fullQuestion.answerImage.url}
-                            alt={fullQuestion.answerImage.alt || ''}
+                            src={reveal.answerImage.url}
+                            alt={reveal.answerImage.alt || ''}
                             className="rounded-2xl shadow-lg max-w-full h-auto"
                           />
                         </div>
@@ -374,8 +376,8 @@ export default function Play() {
                     <div className="mt-6 text-center">
                       <button
                         onClick={goNext}
-                        disabled={isWaitingForNewQuestion}
-                        className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-2xl font-semibold hover:scale-105 transition-all duration-200 disabled:opacity-50"
+                        disabled={loading}
+                        className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-2xl font-semibold hover:scale-105 transition-all duration-200"
                       >
                         <span>Next Challenge</span>
                         <ArrowRight size={20} />
@@ -390,12 +392,12 @@ export default function Play() {
                     <User size={16} />
                     <span className="text-sm">
                       Submitted by{' '}
-                      {displayQuestion.submittedBy?.username ? (
+                      {current.submittedBy?.username ? (
                         <Link
-                          to={`/profile/${displayQuestion.submittedBy.username}`}
+                          to={`/profile/${current.submittedBy.username}`}
                           className="font-medium text-indigo-600 hover:text-indigo-800 hover:underline transition-colors"
                         >
-                          @{displayQuestion.submittedBy.username}
+                          @{current.submittedBy.username}
                         </Link>
                       ) : (
                         <span className="font-medium text-gray-700">@Unknown</span>
@@ -408,10 +410,10 @@ export default function Play() {
           </div>
         ) : (
           <div className="text-center py-16">
-            <div className="text-xl text-gray-600 mb-4">No question available</div>
+            <div className="text-xl text-gray-600">No questions available right now</div>
             <button
-              onClick={() => setNeedsNewQuestion(true)}
-              className="px-6 py-3 bg-indigo-600 text-white rounded-2xl font-semibold hover:bg-indigo-700 transition-all"
+              onClick={fetchRandom}
+              className="mt-4 px-6 py-3 bg-indigo-600 text-white rounded-2xl font-semibold hover:bg-indigo-700 transition-all"
             >
               Try Again
             </button>
