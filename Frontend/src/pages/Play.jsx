@@ -3,7 +3,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { useRandomQuestionQuery, useQuestionQuery } from '../hooks/useQueries';
-import { patch } from '../lib/api';
+import { patch, get} from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import QuillEditor from '../components/QuillEditor';
 import { 
@@ -42,50 +42,37 @@ export default function Play() {
 
   // ✅ Simple question fetching - only when we need new ones
   const fetchRandom = useCallback(async () => {
-    setLoading(true);
-    setReveal(null);
+  setLoading(true);
+  setReveal(null);
+  
+  try {
+    const lastIds = stack.slice(-10).map(q => q.id);
+    const excludeIds = Array.from(new Set(lastIds));
     
-    try {
-      // Use the query client to fetch and cache
-      const lastIds = stack.slice(-10).map(q => q.id);
-      const excludeIds = Array.from(new Set(lastIds));
+    const cacheKey = ['question', 'random', excludeIds.sort().join(',')];
+    let q = queryClient.getQueryData(cacheKey);
+    
+    if (!q) {
+      // ✅ Use your api.js get function instead of fetch
+      const query = excludeIds.length
+        ? '?' + new URLSearchParams(excludeIds.map(id => ['excludeIds', id]))
+        : '';
       
-      // ✅ Create a simple cache key based on excluded IDs
-      const cacheKey = ['question', 'random', excludeIds.sort().join(',')];
+      q = await get(`/api/questions/random${query}`); // ✅ This will now use correct base URL
       
-      // ✅ Try to get from cache first
-      let q = queryClient.getQueryData(cacheKey);
-      
-      if (!q) {
-        const query = excludeIds.length
-          ? '?' + new URLSearchParams(excludeIds.map(id => ['excludeIds', id]))
-          : '';
-        
-        const response = await fetch(`/api/questions/random${query}`, {
-          headers: {
-            'Authorization': `Bearer ${localStorage.getItem('authToken')}`,
-          },
-        });
-        
-        if (!response.ok) throw new Error('Failed to fetch question');
-        q = await response.json();
-        
-        // ✅ Cache the result
-        queryClient.setQueryData(cacheKey, q, {
-          staleTime: 5 * 60 * 1000, // 5 minutes
-        });
-      } else {
-        console.log('🚀 Using cached question');
-      }
-
-      setStack(prev => [...prev.slice(0, idx + 1), q]);
-      setIdx(prev => prev + 1);
-    } catch (error) {
-      console.error('Failed to fetch question:', error);
-    } finally {
-      setLoading(false);
+      queryClient.setQueryData(cacheKey, q, {
+        staleTime: 5 * 60 * 1000,
+      });
     }
-  }, [stack, idx, queryClient]);
+
+    setStack(prev => [...prev.slice(0, idx + 1), q]);
+    setIdx(prev => prev + 1);
+  } catch (error) {
+    console.error('Failed to fetch question:', error);
+  } finally {
+    setLoading(false);
+  }
+}, [stack, idx, queryClient]);  
 
   // ✅ Answer reveal with caching
   async function toggleAnswer() {
