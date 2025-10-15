@@ -1,7 +1,7 @@
+// controllers/questionController.js - Updated to handle new image structure
 import mongoose from 'mongoose';
 import Question from '../models/questionModel.js';
 import sanitizeHtml from 'sanitize-html';
-import { extractFirstImgSrc, extractAllImgSrcs } from '../utils/html.js';
 import crypto from 'crypto';
 
 // ----- Sanitizer (defense-in-depth) -----
@@ -11,11 +11,15 @@ const SANITIZE_OPTS = {
     'blockquote','code','pre',
     'ul','ol','li',
     'h1','h2','h3','h4','h5','h6',
-    'span','a','img'
+    'span','a'
+    // ✅ Removed 'img' since we handle images separately now
   ],
-  allowedAttributes: { a: ['href','target','rel'], img: ['src','alt'] },
+  allowedAttributes: { 
+    a: ['href','target','rel']
+    // ✅ Removed img attributes since no img tags in HTML now
+  },
   allowProtocolRelative: false,
-  allowedSchemes: ['http','https','data'],
+  allowedSchemes: ['http','https'],
 };
 
 // HTML → plain text (very simple)
@@ -27,6 +31,15 @@ function htmlToPlain(html = '') {
     .replace(/<[^>]+>/g, '')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
+}
+
+// ✅ Validate image object structure
+function validateImage(img) {
+  return img && 
+         typeof img === 'object' && 
+         typeof img.url === 'string' && 
+         img.url.trim().length > 0 &&
+         img.url.startsWith('https://'); // Ensure secure URLs
 }
 
 // ---------- shape ----------
@@ -65,13 +78,28 @@ export async function submitQuestion(req, res){
       return res.status(401).json({ message: 'Authentication required' });
     }
 
-    const { bodyHtml, answerHtml, answerOneLiner, tags } = req.body;
+    // ✅ Updated destructuring to handle new structure
+    const { 
+      bodyHtml, 
+      answerHtml, 
+      answerOneLiner, 
+      tags, 
+      images,      // ✅ Array of question images
+      answerImage  // ✅ Single answer image
+    } = req.body;
+
+    console.log('🔍 Submit payload:', { 
+      bodyHtml: !!bodyHtml, 
+      answerHtml: !!answerHtml, 
+      images: images?.length || 0,
+      answerImage: !!answerImage 
+    });
 
     if (!bodyHtml || !answerHtml) {
       return res.status(400).json({ message: 'Question and Answer are required' });
     }
 
-    // 1) Sanitize incoming HTML
+    // 1) Sanitize incoming HTML (no images in HTML now)
     const cleanBodyHtml   = sanitizeHtml(bodyHtml,   SANITIZE_OPTS);
     const cleanAnswerHtml = sanitizeHtml(answerHtml, SANITIZE_OPTS);
 
@@ -83,10 +111,33 @@ export async function submitQuestion(req, res){
       return res.status(400).json({ message: 'Question and Answer cannot be empty' });
     }
 
-    // 3) Collect images
-    const thumbUrl   = extractFirstImgSrc(cleanAnswerHtml);         // answer ke liye thumbnail
-    const questionUrls = extractAllImgSrcs(cleanBodyHtml);          // sirf question wali images
-    const imagesArr  = questionUrls.map(u => ({ url: u }));         // model: images[] = question images only
+    // ✅ 3) Process images from separate arrays instead of extracting from HTML
+    let processedImages = [];
+    let processedAnswerImage = undefined;
+
+    // Validate and process question images
+    if (Array.isArray(images)) {
+      processedImages = images
+        .filter(validateImage)
+        .slice(0, 3) // Max 3 images as per your frontend
+        .map(img => ({
+          url: img.url.trim(),
+          alt: (img.alt || '').trim()
+        }));
+    }
+
+    // Validate and process answer image
+    if (answerImage && validateImage(answerImage)) {
+      processedAnswerImage = {
+        url: answerImage.url.trim(),
+        alt: (answerImage.alt || '').trim()
+      };
+    }
+
+    console.log('🔍 Processed images:', {
+      questionImages: processedImages.length,
+      answerImage: !!processedAnswerImage
+    });
 
     // 4) Idempotency: same content → same hash
     const contentHash = crypto
@@ -98,19 +149,22 @@ export async function submitQuestion(req, res){
     try {
       const doc = await Question.create({
         body: bodyPlain,
-        images: imagesArr,
+        images: processedImages,           // ✅ Use processed question images
         answer: answerPlain,
-        answerImage: thumbUrl ? { url: thumbUrl } : undefined,
+        answerImage: processedAnswerImage, // ✅ Use processed answer image
         answerOneLiner: answerOneLiner || '',
         tags: Array.isArray(tags) ? tags.slice(0, 10) : [],
         submittedBy: userId,
         status: 'pending',
         contentHash,
       });
+
+      console.log('✅ Question created:', doc._id);
       return res.status(201).json({ id: doc._id });
     } catch (e) {
       if (e?.code === 11000 && e?.keyPattern?.contentHash) {
         const existing = await Question.findOne({ contentHash }).select('_id');
+        console.log('🔄 Duplicate content, returning existing:', existing._id);
         return res.status(200).json({ id: existing._id, deduped: true });
       }
       throw e;
@@ -119,11 +173,13 @@ export async function submitQuestion(req, res){
     console.error('submitQuestion error:', err);
     return res.status(500).json({ message: 'Server error' });
   }
-};
+}
 
 // ---------- GET /api/questions/random?excludeIds=... ----------
 export async function getRandomQuestion(req, res) {
   try {
+    console.log('🎲 Getting random question, excludeIds:', req.query.excludeIds);
+    
     const excludeIds = []
       .concat(req.query.excludeIds || [])
       .filter(Boolean);
@@ -137,6 +193,8 @@ export async function getRandomQuestion(req, res) {
 
     const match = { status: 'approved' };
     if (exclude.length) match._id = { $nin: exclude };
+
+    console.log('🔍 Query match:', match);
 
     const picked = await Question.aggregate([
       { $match: match },
@@ -153,6 +211,7 @@ export async function getRandomQuestion(req, res) {
     ]);
 
     if (!picked.length) {
+      console.log('❌ No questions found');
       return res.status(404).json({ message: 'No questions available' });
     }
 
@@ -161,6 +220,7 @@ export async function getRandomQuestion(req, res) {
       .select('body images tags submittedBy createdAt')
       .lean();
 
+    console.log('✅ Random question found:', doc._id, 'images:', doc.images?.length || 0);
     return res.json(shape(doc, { reveal: false }));
   } catch (e) {
     console.error('getRandomQuestion error:', e);
@@ -174,6 +234,8 @@ export async function getQuestionById(req, res) {
     const { id } = req.params;
     const reveal = String(req.query.reveal || 'false') === 'true';
 
+    console.log('🔍 Getting question by ID:', id, 'reveal:', reveal);
+
     if (!mongoose.isValidObjectId(id)) {
       return res.status(400).json({ message: 'Invalid id' });
     }
@@ -182,7 +244,12 @@ export async function getQuestionById(req, res) {
       .populate({ path: 'submittedBy', select: 'username' })
       .lean();
 
-    if (!q) return res.status(404).json({ message: 'Not found' });
+    if (!q) {
+      console.log('❌ Question not found:', id);
+      return res.status(404).json({ message: 'Not found' });
+    }
+
+    console.log('✅ Question found:', id, 'reveal:', reveal, 'answerImage:', !!q.answerImage);
 
     if (!reveal) {
       delete q.answer;
@@ -197,6 +264,7 @@ export async function getQuestionById(req, res) {
   }
 }
 
+// ✅ Updated admin update function to handle new structure
 export async function adminUpdateQuestion(req, res) {
   try {
     const userId = req.user?.userId;
@@ -210,7 +278,16 @@ export async function adminUpdateQuestion(req, res) {
       return res.status(400).json({ message: 'Invalid question ID' });
     }
     
-    const { bodyHtml, answerHtml, answerOneLiner, tags, status } = req.body;
+    // ✅ Updated to handle new structure
+    const { 
+      bodyHtml, 
+      answerHtml, 
+      answerOneLiner, 
+      tags, 
+      status,
+      images,      // ✅ New: question images array
+      answerImage  // ✅ New: answer image object
+    } = req.body;
 
     if (!bodyHtml || !answerHtml) {
       return res.status(400).json({ message: 'bodyHtml & answerHtml required' });
@@ -225,10 +302,26 @@ export async function adminUpdateQuestion(req, res) {
       return res.status(400).json({ message: 'Question/Answer cannot be empty' });
     }
 
-    const questionUrls = extractAllImgSrcs(cleanBody);
-    const imagesArr = questionUrls.map(u => ({ url: u }));
+    // ✅ Process images from new structure
+    let processedImages = [];
+    let processedAnswerImage = undefined;
 
-    const thumbUrl = extractFirstImgSrc(cleanAnswer);
+    if (Array.isArray(images)) {
+      processedImages = images
+        .filter(validateImage)
+        .slice(0, 3)
+        .map(img => ({
+          url: img.url.trim(),
+          alt: (img.alt || '').trim()
+        }));
+    }
+
+    if (answerImage && validateImage(answerImage)) {
+      processedAnswerImage = {
+        url: answerImage.url.trim(),
+        alt: (answerImage.alt || '').trim()
+      };
+    }
 
     const contentHash = crypto.createHash('sha256')
       .update(`b:${bodyPlain}#a:${answerPlain}`)
@@ -236,9 +329,9 @@ export async function adminUpdateQuestion(req, res) {
 
     const update = {
       body: bodyPlain,
-      images: imagesArr,
+      images: processedImages,           // ✅ Use processed images
       answer: answerPlain,
-      answerImage: thumbUrl ? { url: thumbUrl } : undefined,
+      answerImage: processedAnswerImage, // ✅ Use processed answer image
       answerOneLiner: answerOneLiner ?? '',
       contentHash,
       editedAt: new Date(),
@@ -246,7 +339,7 @@ export async function adminUpdateQuestion(req, res) {
     };
 
     if (typeof status === 'string') {
-      update.status = status; // guarded by requireRole in router
+      update.status = status;
     }
     if (Array.isArray(tags)) {
       update.tags = tags.slice(0, 10);
@@ -260,6 +353,7 @@ export async function adminUpdateQuestion(req, res) {
 
     if (!q) return res.status(404).json({ message: 'Not found' });
 
+    console.log('✅ Question updated:', id);
     return res.json({
       id: q._id,
       message: 'Updated',
@@ -270,7 +364,7 @@ export async function adminUpdateQuestion(req, res) {
   }
 }
 
-// List submissions by logged-in user
+// List submissions by logged-in user (unchanged)
 export async function listMySubmissions(req, res) {
   try {
     const userId = req.user?.userId;
@@ -280,7 +374,6 @@ export async function listMySubmissions(req, res) {
 
     console.log('🔍 listMySubmissions - userId:', userId);
 
-    // ✅ Convert string userId to ObjectId properly
     let userObjectId;
     try {
       userObjectId = new mongoose.Types.ObjectId(userId);
@@ -294,7 +387,7 @@ export async function listMySubmissions(req, res) {
     const limit = Math.min(50, Math.max(1, parseInt(req.query.limit || '10', 10)));
     const skip  = (page - 1) * limit;
 
-    const filter = { submittedBy: userObjectId }; // ✅ Use ObjectId
+    const filter = { submittedBy: userObjectId };
     console.log('🔍 Query filter:', filter);
 
     const [items, total] = await Promise.all([

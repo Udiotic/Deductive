@@ -57,8 +57,6 @@ export default function Play() {
       let q = queryClient.getQueryData(cacheKey);
       
       if (!q) {
-        // ✅ Not in cache, fetch from API
-        console.log('🌐 API CALL: Fetching random question');
         const query = excludeIds.length
           ? '?' + new URLSearchParams(excludeIds.map(id => ['excludeIds', id]))
           : '';
