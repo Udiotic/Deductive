@@ -19,6 +19,7 @@ import { RedirectIfAuthenticated } from './components/AuthGuard';
 import Header from './components/Header';
 import GameModeSelection from './pages/GameModeSelection';
 
+
 //QueryClient with optimized defaults
 const queryClient = new QueryClient({
   defaultOptions: {

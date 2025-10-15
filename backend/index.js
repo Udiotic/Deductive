@@ -10,6 +10,7 @@ import uploadRouter from './routers/uploadRouter.js';
 import adminRouter from './routers/adminRouter.js';
 import profileRouter from './routers/profileRouter.js';
 import userRouter from './routers/userRouter.js';
+import validationRouter from './routers/validationRouter.js'
 import { connect } from 'mongoose';
 
 // ---------- DB ----------
@@ -82,6 +83,7 @@ app.get('/health', (req, res) => {
 app.use('/api/uploads', uploadRouter);
 app.use('/api/auth', authRouter);
 app.use('/api/questions', questionRouter);
+app.use('/api/validation', validationRouter);
 app.use('/api/admin', adminRouter);
 app.use('/api/profile', profileRouter);
 app.use('/api/users', userRouter);

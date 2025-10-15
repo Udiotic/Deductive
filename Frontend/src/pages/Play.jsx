@@ -146,57 +146,85 @@ export default function Play() {
 
   // Handle answer submission
   const handleSubmitAnswer = useCallback(async () => {
-    if (!current || !userAnswer.trim() || gaveUp) return;
+  if (!current || !userAnswer.trim() || gaveUp) return;
+  
+  try {
+    setLoading(true);
     
     // Get correct answer if we don't have it
-    if (!reveal) {
-      try {
-        setLoading(true);
-        const full = await get(`/api/questions/${current.id}?reveal=true`);
-        setReveal({
-          answer: full.answer,
-          answerImage: full.answerImage,
-          answerOneLiner: full.answerOneLiner,
-        });
-        
-        // Validate against the fetched answer
-        const result = validateAnswer(userAnswer, full.answer);
-        setFeedback(result);
-        setAttempts(prev => prev + 1);
-        
-        // ✅ Award points (simplified - no hint penalties)
-        if (result === 'correct') {
-          const basePoints = 100;
-          const attemptPenalty = Math.min(50, (attempts) * 10); // -10 points per attempt, max -50
-          const points = Math.max(20, basePoints - attemptPenalty); // Min 20 points
-          setScore(prev => prev + points);
-          setShowCelebration(true);
-          setTimeout(() => setShowCelebration(false), 3000);
-        }
-        
-      } catch (error) {
-        console.error('Failed to fetch answer:', error);
-        setToast('Failed to check answer. Please try again.');
-        setTimeout(() => setToast(''), 3000);
-      } finally {
-        setLoading(false);
-      }
-    } else {
-      // We already have the answer
-      const result = validateAnswer(userAnswer, reveal.answer);
-      setFeedback(result);
-      setAttempts(prev => prev + 1);
-      
-      if (result === 'correct') {
-        const basePoints = 100;
-        const attemptPenalty = Math.min(50, (attempts) * 10);
-        const points = Math.max(20, basePoints - attemptPenalty);
-        setScore(prev => prev + points);
-        setShowCelebration(true);
-        setTimeout(() => setShowCelebration(false), 3000);
-      }
+    let answerData = reveal;
+    if (!answerData) {
+      const full = await get(`/api/questions/${current.id}?reveal=true`);
+      answerData = {
+        answer: full.answer,
+        answerImage: full.answerImage,
+        answerOneLiner: full.answerOneLiner,
+      };
+      setReveal(answerData);
     }
-  }, [current, userAnswer, reveal, attempts, gaveUp]);
+
+    // ✅ Try LLM validation first for better accuracy
+    let result = 'cold';
+    let validationMethod = 'deterministic';
+    
+    try {
+      console.log('🤖 Using LLM validation...');
+      const llmResponse = await fetch(`${import.meta.env.VITE_API_BASE}/api/validation/answer`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('authToken')}`,
+        },
+        body: JSON.stringify({
+          questionText: current.body,
+          correctAnswer: answerData.answer,
+          userAnswer: userAnswer,
+          questionId: current.id
+        })
+      });
+      
+      if (llmResponse.ok) {
+        const llmData = await llmResponse.json();
+        result = llmData.result;
+        validationMethod = llmData.confidence;
+        console.log(`✅ LLM validation: ${result} (${llmData.duration}ms)`);
+      } else {
+        throw new Error('LLM validation failed');
+      }
+    } catch (llmError) {
+      console.log('⚠️ LLM validation failed, using deterministic fallback');
+      // Fallback to deterministic validation
+      result = validateAnswer(userAnswer, answerData.answer);
+      validationMethod = 'fallback';
+    }
+    
+    setFeedback(result);
+    setAttempts(prev => prev + 1);
+    
+    // Award points
+    if (result === 'correct') {
+      const basePoints = 100;
+      const attemptPenalty = Math.min(50, (attempts) * 10);
+      const points = Math.max(20, basePoints - attemptPenalty);
+      setScore(prev => prev + points);
+      setShowCelebration(true);
+      setTimeout(() => setShowCelebration(false), 3000);
+    }
+    
+    // Show validation method in toast for debugging
+    if (validationMethod === 'llm') {
+      setToast('✨ Smart validation powered by AI');
+      setTimeout(() => setToast(''), 2000);
+    }
+    
+  } catch (error) {
+    console.error('Failed to validate answer:', error);
+    setToast('Failed to check answer. Please try again.');
+    setTimeout(() => setToast(''), 3000);
+  } finally {
+    setLoading(false);
+  }
+}, [current, userAnswer, reveal, attempts, gaveUp]);
 
   // ✅ Handle giving up - reveals the answer
   const handleGiveUp = useCallback(async () => {
