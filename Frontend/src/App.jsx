@@ -17,6 +17,7 @@ import PublicProfile from './pages/PublicProfile';
 import VerifyEmailCode from './pages/VerifyEmailCode';
 import { RedirectIfAuthenticated } from './components/AuthGuard';
 import Header from './components/Header';
+import GameModeSelection from './pages/GameModeSelection';
 
 //QueryClient with optimized defaults
 const queryClient = new QueryClient({
@@ -106,10 +107,19 @@ export default function App() {
                   path="/play" 
                   element={
                     <RequireAuth>
+                      <GameModeSelection />
+                    </RequireAuth>
+                  } 
+                />
+                <Route 
+                  path="/play/casual-solo" 
+                  element={
+                    <RequireAuth>
                       <Play />
                     </RequireAuth>
                   } 
                 />
+                
                 <Route 
                   path="/profile" 
                   element={
