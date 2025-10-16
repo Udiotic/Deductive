@@ -145,7 +145,9 @@ export default function Play() {
   }, [stack, idx]);
 
   // Handle answer submission
-  const handleSubmitAnswer = useCallback(async () => {
+  // src/pages/Play.jsx - Update only the handleSubmitAnswer function
+
+const handleSubmitAnswer = useCallback(async () => {
   if (!current || !userAnswer.trim() || gaveUp) return;
   
   try {
@@ -163,39 +165,56 @@ export default function Play() {
       setReveal(answerData);
     }
 
-    // ✅ Try LLM validation first for better accuracy
-    let result = 'cold';
+    // ✅ Step 1: Try deterministic validation first
+    console.log('🔧 Running deterministic validation first...');
+    let result = validateAnswer(userAnswer, answerData.answer);
     let validationMethod = 'deterministic';
     
-    try {
-      console.log('🤖 Using LLM validation...');
-      const llmResponse = await fetch(`${import.meta.env.VITE_API_BASE}/api/validation/answer`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('authToken')}`,
-        },
-        body: JSON.stringify({
-          questionText: current.body,
-          correctAnswer: answerData.answer,
-          userAnswer: userAnswer,
-          questionId: current.id
-        })
-      });
-      
-      if (llmResponse.ok) {
-        const llmData = await llmResponse.json();
-        result = llmData.result;
-        validationMethod = llmData.confidence;
-        console.log(`✅ LLM validation: ${result} (${llmData.duration}ms)`);
-      } else {
-        throw new Error('LLM validation failed');
+    console.log('🔧 Deterministic result:', result);
+    
+    // ✅ Step 2: If deterministic is NOT correct, try LLM for better accuracy
+    if (result !== 'correct') {
+      try {
+        console.log('🤖 Deterministic not correct, trying LLM validation...');
+        const llmResponse = await fetch(`${import.meta.env.VITE_API_BASE}/api/validation/answer`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${localStorage.getItem('authToken')}`,
+          },
+          body: JSON.stringify({
+            questionText: current.body,
+            canonicalAnswer: answerData.answer,
+            userAnswer: userAnswer,
+            questionId: current.id,
+            // ✅ Optional fields for enhanced validation
+            aliases: [], // Could be populated from question data later
+            keyTokens: [], // Could be extracted from answer
+            disallowedNearMisses: [] // Could be configured per question
+          })
+        });
+        
+        if (llmResponse.ok) {
+          const llmData = await llmResponse.json();
+          
+          // ✅ Use LLM result if it's better than deterministic
+          if (llmData.verdict && llmData.verdict !== result) {
+            result = llmData.verdict;
+            validationMethod = 'llm';
+            console.log(`✅ LLM override: ${result} (${llmData.duration}ms)`);
+            console.log('💡 LLM explanation:', llmData.explanation);
+          } else {
+            console.log('🔧 LLM agreed with deterministic result');
+            validationMethod = 'llm-confirmed';
+          }
+        } else {
+          console.log('⚠️ LLM validation failed, keeping deterministic result');
+        }
+      } catch (llmError) {
+        console.log('⚠️ LLM validation error, keeping deterministic result:', llmError.message);
       }
-    } catch (llmError) {
-      console.log('⚠️ LLM validation failed, using deterministic fallback');
-      // Fallback to deterministic validation
-      result = validateAnswer(userAnswer, answerData.answer);
-      validationMethod = 'fallback';
+    } else {
+      console.log('✅ Deterministic found correct answer, skipping LLM');
     }
     
     setFeedback(result);
@@ -211,10 +230,13 @@ export default function Play() {
       setTimeout(() => setShowCelebration(false), 3000);
     }
     
-    // Show validation method in toast for debugging
+    // ✅ Show validation method in toast
     if (validationMethod === 'llm') {
-      setToast('✨ Smart validation powered by AI');
+      setToast('🧠 AI found a better match!');
       setTimeout(() => setToast(''), 2000);
+    } else if (validationMethod === 'deterministic') {
+      setToast('⚡ Lightning-fast validation');
+      setTimeout(() => setToast(''), 1500);
     }
     
   } catch (error) {
@@ -225,6 +247,7 @@ export default function Play() {
     setLoading(false);
   }
 }, [current, userAnswer, reveal, attempts, gaveUp]);
+
 
   // ✅ Handle giving up - reveals the answer
   const handleGiveUp = useCallback(async () => {
