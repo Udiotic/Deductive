@@ -417,3 +417,29 @@ export async function listMySubmissions(req, res) {
     res.status(500).json({ message: 'Server error' });
   }
 }
+
+export async function getQuestionStats(req, res) {
+  try {
+    console.log('📊 Getting question statistics...');
+    
+    const [approved, pending, total] = await Promise.all([
+      Question.countDocuments({ status: 'approved' }),
+      Question.countDocuments({ status: 'pending' }),
+      Question.countDocuments()
+    ]);
+
+    const stats = {
+      approved,
+      pending, 
+      total,
+      rejected: total - approved - pending
+    };
+
+    console.log('✅ Question stats:', stats);
+    return res.json(stats);
+    
+  } catch (error) {
+    console.error('❌ Failed to get question stats:', error);
+    return res.status(500).json({ message: 'Failed to get statistics' });
+  }
+}

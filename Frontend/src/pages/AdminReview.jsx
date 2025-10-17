@@ -1,4 +1,4 @@
-// src/pages/AdminReview.jsx
+// src/pages/AdminReview.jsx - Using reusable EditQuestionModal
 import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { 
@@ -7,10 +7,8 @@ import {
   useApproveQuestionMutation,
   useRejectQuestionMutation 
 } from '../hooks/useQueries';
-import { patch } from '../lib/api';
-import DOMPurify from 'dompurify';
-import QuillEditor from '../components/QuillEditor';
 import { useAuth } from '../context/AuthContext';
+import EditQuestionModal from '../components/EditQuestionModal'; // ✅ Import the reusable component
 import { 
   Shield, 
   CheckCircle, 
@@ -24,8 +22,6 @@ import {
   AlertTriangle,
   Sparkles,
   FileText,
-  X,
-  Save,
   RefreshCw
 } from 'lucide-react';
 
@@ -34,21 +30,17 @@ export default function AdminReview() {
   const queryClient = useQueryClient();
   const canModerate = /^(admin|moderator)$/i.test(String(user?.role || ''));
 
-  // ✅ Pagination state
+  // Pagination state
   const [page, setPage] = useState(1);
   const [selectedQuestionId, setSelectedQuestionId] = useState(null);
   const [showAnswer, setShowAnswer] = useState(false);
 
-  // ✅ Edit modal state
+  // ✅ Simplified edit state - just modal open/close
   const [editOpen, setEditOpen] = useState(false);
-  const [editBodyHtml, setEditBodyHtml] = useState('');
-  const [editAnswerHtml, setEditAnswerHtml] = useState('');
-  const [editOneLiner, setEditOneLiner] = useState('');
-  const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState('');
   const [toastType, setToastType] = useState('success');
 
-  // ✅ React Query hooks
+  // React Query hooks
   const { 
     data: questionsData, 
     isLoading: loadingList,
@@ -68,7 +60,7 @@ export default function AdminReview() {
   const approveMutation = useApproveQuestionMutation();
   const rejectMutation = useRejectQuestionMutation();
 
-  // ✅ Helper functions
+  // Helper functions
   const showToast = (message, type = 'success') => {
     setToast(message);
     setToastType(type);
@@ -84,43 +76,20 @@ export default function AdminReview() {
     setShowAnswer(!showAnswer);
   };
 
-  // ✅ Edit functions
-  const openEdit = () => {
-    if (!selectedQuestion) return;
-    const toHtml = (plain) => (plain ? `<p>${String(plain).replace(/\n/g, '</p><p>')}</p>` : '<p></p>');
-    setEditBodyHtml(toHtml(selectedQuestion.body || ''));
-    setEditAnswerHtml(toHtml(fullQuestion?.answer || ''));
-    setEditOneLiner(fullQuestion?.answerOneLiner || '');
-    setEditOpen(true);
+  // ✅ Handle edit success
+  const handleEditSuccess = (message) => {
+    showToast(message);
+    
+    // Invalidate caches to refresh data
+    queryClient.invalidateQueries({ 
+      queryKey: ['question', selectedQuestionId] 
+    });
+    queryClient.invalidateQueries({ 
+      queryKey: ['admin', 'questions', 'pending'] 
+    });
   };
 
-  const saveEdit = async () => {
-    if (!selectedQuestion) return;
-    try {
-      setSaving(true);
-      await patch(`/api/questions/${selectedQuestion._id || selectedQuestion.id}`, {
-        bodyHtml: editBodyHtml,
-        answerHtml: editAnswerHtml,
-        answerOneLiner: editOneLiner,
-      });
-      showToast('Changes saved successfully!');
-      setEditOpen(false);
-      
-      // Invalidate question cache
-      queryClient.invalidateQueries({ 
-        queryKey: ['question', selectedQuestion._id || selectedQuestion.id] 
-      });
-      queryClient.invalidateQueries({ 
-        queryKey: ['admin', 'questions', 'pending'] 
-      });
-    } catch (e) {
-      showToast(e?.message || 'Save failed', 'error');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  // ✅ Approve/Reject functions
+  // Approve/Reject functions
   const handleApprove = async () => {
     if (!selectedQuestion) return;
     
@@ -328,7 +297,7 @@ export default function AdminReview() {
                       </button>
                       
                       <button
-                        onClick={openEdit}
+                        onClick={() => setEditOpen(true)}
                         className="flex items-center gap-2 px-4 py-2 border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors"
                       >
                         <Edit3 size={16} />
@@ -428,81 +397,15 @@ export default function AdminReview() {
         </div>
       </div>
 
-      {/* Edit Modal */}
-      {editOpen && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-auto animate-in zoom-in-95 duration-200">
-            <div className="p-6 border-b border-gray-100">
-              <div className="flex items-center justify-between">
-                <h3 className="text-xl font-bold text-gray-900">Edit Submission</h3>
-                <button
-                  onClick={() => setEditOpen(false)}
-                  className="p-2 hover:bg-gray-100 rounded-xl transition-colors"
-                >
-                  <X size={20} className="text-gray-500" />
-                </button>
-              </div>
-            </div>
-            
-            <div className="p-6 space-y-6">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Question Content
-                </label>
-                <QuillEditor
-                  value={editBodyHtml}
-                  onChange={setEditBodyHtml}
-                  placeholder="Enter the question..."
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Answer Content
-                </label>
-                <QuillEditor
-                  value={editAnswerHtml}
-                  onChange={setEditAnswerHtml}
-                  placeholder="Enter the answer..."
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  One-liner Summary
-                </label>
-                <input
-                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
-                  placeholder="Brief explanation or hint..."
-                  value={editOneLiner}
-                  onChange={(e) => setEditOneLiner(e.target.value)}
-                />
-              </div>
-            </div>
-
-            <div className="flex gap-3 justify-end p-6 border-t border-gray-100">
-              <button
-                onClick={() => setEditOpen(false)}
-                className="px-6 py-3 text-gray-600 hover:text-gray-900 hover:bg-gray-50 rounded-xl transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={saveEdit}
-                disabled={saving}
-                className="flex items-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-xl font-semibold hover:bg-indigo-700 disabled:opacity-50 transition-colors"
-              >
-                {saving ? (
-                  <RefreshCw size={18} className="animate-spin" />
-                ) : (
-                  <Save size={18} />
-                )}
-                <span>{saving ? 'Saving...' : 'Save Changes'}</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* ✅ Reusable Edit Modal */}
+      <EditQuestionModal
+        isOpen={editOpen}
+        onClose={() => setEditOpen(false)}
+        questionId={selectedQuestionId}
+        onSuccess={handleEditSuccess}
+        title="Edit Submission"
+        description="Review and modify this question before approval"
+      />
     </div>
   );
 }
