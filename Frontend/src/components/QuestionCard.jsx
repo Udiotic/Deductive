@@ -1,5 +1,5 @@
-// src/components/QuestionCard.jsx - Reusable question card component
-import { useState, useCallback } from 'react';
+// src/components/QuestionCard.jsx - Complete fixed version
+import { useState, useCallback, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { get } from '../lib/api';
 import { 
@@ -13,7 +13,8 @@ import {
   Flame,
   Flag,
   User,
-  Edit3
+  Edit3,
+  ChevronRight
 } from 'lucide-react';
 
 /**
@@ -84,6 +85,20 @@ export default function QuestionCard({
   const [reveal, setReveal] = useState(null);
   const [loading, setLoading] = useState(false);
   const [showCelebration, setShowCelebration] = useState(false);
+
+  // ✅ Reset all state when question changes
+  useEffect(() => {
+    if (question) {
+      console.log('🔄 New question loaded, resetting state:', question.id);
+      setUserAnswer('');
+      setFeedback(null);
+      setAttempts(0);
+      setGaveUp(false);
+      setReveal(null);
+      setLoading(false);
+      setShowCelebration(false);
+    }
+  }, [question?.id]); // Reset when question ID changes
 
   // Handle answer submission
   const handleSubmitAnswer = useCallback(async () => {
