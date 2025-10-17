@@ -13,14 +13,14 @@ import {
 } from 'lucide-react';
 
 export default function GameModeSelection() {
-  const gameModes = [
+ const gameModes = [
     {
       id: 'casual-solo',
       title: 'Casual Solo',
       description: 'Think through puzzles at your own pace with text input answers',
       icon: Brain,
       gradient: 'from-indigo-500 to-purple-600',
-      features: ['Open-ended answers', 'Hint system', 'Score tracking'],
+      features: ['Open-ended answers', 'Smart validation', 'Score tracking'],
       available: true,
       path: '/play/casual-solo'
     },
@@ -31,7 +31,7 @@ export default function GameModeSelection() {
       icon: ImageIcon,
       gradient: 'from-emerald-500 to-teal-600',
       features: ['Visual challenges', 'Image analysis', 'Pattern recognition'],
-      available: false,
+      available: true, // ✅ Enable Picture Mode
       path: '/play/picture-mode'
     },
     {

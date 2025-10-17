@@ -178,7 +178,7 @@ export async function submitQuestion(req, res){
 // ---------- GET /api/questions/random?excludeIds=... ----------
 export async function getRandomQuestion(req, res) {
   try {
-    console.log('🎲 Getting random question, excludeIds:', req.query.excludeIds);
+    console.log('🎲 Getting random question, excludeIds:', req.query.excludeIds, 'tags:', req.query.tags);
     
     const excludeIds = []
       .concat(req.query.excludeIds || [])
@@ -193,6 +193,14 @@ export async function getRandomQuestion(req, res) {
 
     const match = { status: 'approved' };
     if (exclude.length) match._id = { $nin: exclude };
+
+    // ✅ Add tag filtering
+    const requestedTags = req.query.tags;
+    if (requestedTags) {
+      const tagsArray = Array.isArray(requestedTags) ? requestedTags : [requestedTags];
+      match.tags = { $in: tagsArray };
+      console.log('🏷️ Filtering by tags:', tagsArray);
+    }
 
     console.log('🔍 Query match:', match);
 
@@ -220,7 +228,7 @@ export async function getRandomQuestion(req, res) {
       .select('body images tags submittedBy createdAt')
       .lean();
 
-    console.log('✅ Random question found:', doc._id, 'images:', doc.images?.length || 0);
+    console.log('✅ Random question found:', doc._id, 'images:', doc.images?.length || 0, 'tags:', doc.tags);
     return res.json(shape(doc, { reveal: false }));
   } catch (e) {
     console.error('getRandomQuestion error:', e);
@@ -420,12 +428,20 @@ export async function listMySubmissions(req, res) {
 
 export async function getQuestionStats(req, res) {
   try {
-    console.log('📊 Getting question statistics...');
+    console.log('📊 Getting question statistics...', 'tags:', req.query.tags);
+    
+    const baseFilter = {};
+    const requestedTags = req.query.tags;
+    
+    if (requestedTags) {
+      const tagsArray = Array.isArray(requestedTags) ? requestedTags : [requestedTags];
+      baseFilter.tags = { $in: tagsArray };
+    }
     
     const [approved, pending, total] = await Promise.all([
-      Question.countDocuments({ status: 'approved' }),
-      Question.countDocuments({ status: 'pending' }),
-      Question.countDocuments()
+      Question.countDocuments({ ...baseFilter, status: 'approved' }),
+      Question.countDocuments({ ...baseFilter, status: 'pending' }),
+      Question.countDocuments(baseFilter)
     ]);
 
     const stats = {
@@ -434,6 +450,12 @@ export async function getQuestionStats(req, res) {
       total,
       rejected: total - approved - pending
     };
+
+    // ✅ If filtering by specific tag, add that to response
+    if (requestedTags) {
+      const tagsArray = Array.isArray(requestedTags) ? requestedTags : [requestedTags];
+      stats[tagsArray[0]] = approved; // e.g., stats.visual = 15
+    }
 
     console.log('✅ Question stats:', stats);
     return res.json(stats);

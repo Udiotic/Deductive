@@ -18,6 +18,7 @@ import VerifyEmailCode from './pages/VerifyEmailCode';
 import { RedirectIfAuthenticated } from './components/AuthGuard';
 import Header from './components/Header';
 import GameModeSelection from './pages/GameModeSelection';
+import PictureMode from './pages/PictureMode';
 
 
 //QueryClient with optimized defaults
@@ -117,6 +118,14 @@ export default function App() {
                   element={
                     <RequireAuth>
                       <Play />
+                    </RequireAuth>
+                  } 
+                />
+                <Route 
+                  path="/play/picture-mode" 
+                  element={
+                    <RequireAuth>
+                      <PictureMode />
                     </RequireAuth>
                   } 
                 />
