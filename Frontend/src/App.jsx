@@ -1,8 +1,9 @@
-// src/App.jsx
+// src/App.jsx - Fixed route protection
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { SocketProvider } from './context/SocketContext';
 import Home from './pages/Home';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
@@ -19,18 +20,19 @@ import { RedirectIfAuthenticated } from './components/AuthGuard';
 import Header from './components/Header';
 import GameModeSelection from './pages/GameModeSelection';
 import PictureMode from './pages/PictureMode';
+import MultiplayerRoom from './pages/MultiplayerRoom';
+import MultiplayerGame from './pages/MultiplayerGame';
 
-
-//QueryClient with optimized defaults
+// ✅ Optimized QueryClient - prevent unnecessary refetches
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       staleTime: 10 * 60 * 1000, // 10 minutes
       gcTime: 15 * 60 * 1000,    // 15 minutes
       refetchOnWindowFocus: false,
-      refetchOnMount: false,      // ✅ This was causing refresh to refetch
-      refetchOnReconnect: false,  // ✅ Don't refetch on reconnect
-      retry: false,
+      refetchOnMount: false,
+      refetchOnReconnect: false,
+      retry: 1, // ✅ Reduced retry attempts
     },
   },
 });
@@ -66,109 +68,124 @@ export default function App() {
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
         <BrowserRouter>
-          <Header />
-          <main>
-            <BootGate>
-              <Routes>
-                <Route path="/" element={<Home />} />
-                
-                {/* Auth pages - redirect if already authenticated */}
-                <Route 
-                  path="/login" 
-                  element={
-                    <RedirectIfAuthenticated>
-                      <Login />
-                    </RedirectIfAuthenticated>
-                  } 
-                />
-                <Route 
-                  path="/signup" 
-                  element={
-                    <RedirectIfAuthenticated>
-                      <Signup />
-                    </RedirectIfAuthenticated>
-                  } 
-                />
-                <Route 
-                  path="/forgot-password" 
-                  element={
-                    <RedirectIfAuthenticated>
-                      <ForgotPassword />
-                    </RedirectIfAuthenticated>
-                  } 
-                />
-                <Route 
-                  path="/reset-password" 
-                  element={<ResetPassword />} 
-                />
-                
-                <Route path="/verify-email-code" element={<VerifyEmailCode />} />
-                
-                {/* Protected pages */}
-                <Route 
-                  path="/play" 
-                  element={
-                    <RequireAuth>
-                      <GameModeSelection />
-                    </RequireAuth>
-                  } 
-                />
-                <Route 
-                  path="/play/casual-solo" 
-                  element={
-                    <RequireAuth>
-                      <Play />
-                    </RequireAuth>
-                  } 
-                />
-                <Route 
-                  path="/play/picture-mode" 
-                  element={
-                    <RequireAuth>
-                      <PictureMode />
-                    </RequireAuth>
-                  } 
-                />
-                
-                <Route 
-                  path="/profile" 
-                  element={
-                    <RequireAuth>
-                      <Profile />
-                    </RequireAuth>
-                  } 
-                />
-                <Route 
-                  path="/editor-test" 
-                  element={
-                    <RequireAuth>
-                      <EditorPlayground />
-                    </RequireAuth>
-                  } 
-                />
-                
-                {/* Admin routes */}
-                <Route 
-                  path="/admin/review" 
-                  element={
-                    <RequireRole roles={['admin', 'moderator']}>
-                      <AdminReview />
-                    </RequireRole>
-                  }
-                />
-                
-                {/* Public routes */}
-                <Route path="/upload-test" element={<UploadTest />} />
-                <Route path="/profile/:username" element={<PublicProfile />} />
-                
-                <Route path="*" element={<Navigate to="/" replace />} />
-              </Routes>
-            </BootGate>
-          </main>
+          <SocketProvider>
+            <Header />
+            <main>
+              <BootGate>
+                <Routes>
+                  <Route path="/" element={<Home />} />
+                  
+                  {/* Auth pages */}
+                  <Route 
+                    path="/login" 
+                    element={
+                      <RedirectIfAuthenticated>
+                        <Login />
+                      </RedirectIfAuthenticated>
+                    } 
+                  />
+                  <Route 
+                    path="/signup" 
+                    element={
+                      <RedirectIfAuthenticated>
+                        <Signup />
+                      </RedirectIfAuthenticated>
+                    } 
+                  />
+                  <Route 
+                    path="/forgot-password" 
+                    element={
+                      <RedirectIfAuthenticated>
+                        <ForgotPassword />
+                      </RedirectIfAuthenticated>
+                    } 
+                  />
+                  <Route path="/reset-password" element={<ResetPassword />} />
+                  <Route path="/verify-email-code" element={<VerifyEmailCode />} />
+                  
+                  {/* Game routes */}
+                  <Route 
+                    path="/play" 
+                    element={
+                      <RequireAuth>
+                        <GameModeSelection />
+                      </RequireAuth>
+                    } 
+                  />
+                  <Route 
+                    path="/play/casual-solo" 
+                    element={
+                      <RequireAuth>
+                        <Play />
+                      </RequireAuth>
+                    } 
+                  />
+                  <Route 
+                    path="/play/picture-mode" 
+                    element={
+                      <RequireAuth>
+                        <PictureMode />
+                      </RequireAuth>
+                    } 
+                  />
+                  <Route 
+                    path="/play/multiplayer/:roomCode" 
+                    element={
+                      <RequireAuth>
+                        <MultiplayerRoom />
+                      </RequireAuth>
+                    } 
+                  />
+                  {/* ✅ FIXED: Added RequireAuth to game route */}
+                  <Route 
+                    path="/play/multiplayer/:roomCode/game" 
+                    element={
+                      <RequireAuth>
+                        <MultiplayerGame />
+                      </RequireAuth>
+                    }
+                  />
+                  
+                  {/* Other protected routes */}
+                  <Route 
+                    path="/profile" 
+                    element={
+                      <RequireAuth>
+                        <Profile />
+                      </RequireAuth>
+                    } 
+                  />
+                  <Route 
+                    path="/editor-test" 
+                    element={
+                      <RequireAuth>
+                        <EditorPlayground />
+                      </RequireAuth>
+                    } 
+                  />
+                  
+                  {/* Admin routes */}
+                  <Route 
+                    path="/admin/review" 
+                    element={
+                      <RequireRole roles={['admin', 'moderator']}>
+                        <AdminReview />
+                      </RequireRole>
+                    }
+                  />
+                  
+                  {/* Public routes */}
+                  <Route path="/upload-test" element={<UploadTest />} />
+                  <Route path="/profile/:username" element={<PublicProfile />} />
+                  
+                  <Route path="*" element={<Navigate to="/" replace />} />
+                </Routes>
+              </BootGate>
+            </main>
+          </SocketProvider>
         </BrowserRouter>
       </AuthProvider>
-      {/* ✅ Add DevTools for monitoring cache performance */}
-      <ReactQueryDevtools initialIsOpen={true} />
+      <ReactQueryDevtools initialIsOpen={false} /> {/* ✅ Set to false by default */}
     </QueryClientProvider>
   );
 }

@@ -1,5 +1,7 @@
-// src/pages/GameModeSelection.jsx
-import { Link } from 'react-router-dom';
+// src/pages/GameModeSelection.jsx - FIXED with proper room creation handling
+
+import { useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import { 
   Brain,
   Image as ImageIcon,
@@ -9,11 +11,58 @@ import {
   Target,
   ArrowRight,
   Sparkles,
-  Play
+  Play,
+  Plus
 } from 'lucide-react';
+import CreateRoomModal from '../components/multiplayer/CreateRoomModal';
+import JoinRoomModal from '../components/multiplayer/JoinRoomModal';
 
 export default function GameModeSelection() {
- const gameModes = [
+  const navigate = useNavigate();
+  const [createModalOpen, setCreateModalOpen] = useState(false);
+  const [joinModalOpen, setJoinModalOpen] = useState(false);
+  const [toast, setToast] = useState('');
+
+  const showToast = (message) => {
+    setToast(message);
+    setTimeout(() => setToast(''), 3000);
+  };
+
+  // ✅ FIXED: Handle room creation with proper room code
+  const handleRoomCreated = (roomCode) => {
+    try {
+      console.log('🏠 handleRoomCreated called with:', roomCode, typeof roomCode);
+
+      // ✅ Validate room code
+      if (!roomCode || typeof roomCode !== 'string') {
+        throw new Error('Invalid room code received');
+      }
+
+      showToast(`Room ${roomCode} created!`);
+
+      // ✅ Direct navigation - MultiplayerRoom will handle socket joining
+      console.log('🚀 Navigating to room:', roomCode);
+      navigate(`/play/multiplayer/${roomCode}`);
+
+    } catch (error) {
+      console.error('❌ Failed to handle room creation:', error);
+      showToast('Failed to create room: ' + error.message);
+    }
+  };
+
+  // ✅ Room joining handler
+  const handleRoomJoined = (roomCode) => {
+    try {
+      console.log('✅ Room joined:', roomCode);
+      showToast(`Joined room ${roomCode}!`);
+      navigate(`/play/multiplayer/${roomCode}`);
+    } catch (error) {
+      console.error('❌ Failed to navigate to room:', error);
+      showToast('Failed to join room');
+    }
+  };
+
+  const gameModes = [
     {
       id: 'casual-solo',
       title: 'Casual Solo',
@@ -26,12 +75,12 @@ export default function GameModeSelection() {
     },
     {
       id: 'picture-mode',
-      title: 'Picture Mode',
+      title: 'Picture Mode', 
       description: 'Visual puzzles that test your observation skills',
       icon: ImageIcon,
       gradient: 'from-emerald-500 to-teal-600',
       features: ['Visual challenges', 'Image analysis', 'Pattern recognition'],
-      available: true, // ✅ Enable Picture Mode
+      available: true,
       path: '/play/picture-mode'
     },
     {
@@ -40,14 +89,24 @@ export default function GameModeSelection() {
       description: 'Compete with friends in real-time puzzle battles',
       icon: Users,
       gradient: 'from-orange-500 to-red-600',
-      features: ['Real-time competition', 'Private rooms', 'Leaderboards'],
-      available: false,
-      path: '/play/multiplayer'
+      features: ['Real-time competition', 'Private rooms', 'Voice chat'],
+      available: true,
+      path: null
     }
   ];
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50">
+      {/* Toast Notifications */}
+      {toast && (
+        <div className="fixed top-24 right-6 z-50 animate-in slide-in-from-right duration-300">
+          <div className="bg-emerald-500 text-white px-6 py-3 rounded-2xl shadow-lg flex items-center gap-2 max-w-sm">
+            <div className="w-2 h-2 bg-white rounded-full" />
+            <span className="font-medium text-sm">{toast}</span>
+          </div>
+        </div>
+      )}
+
       <div className="max-w-6xl mx-auto px-6 py-8">
         {/* Header */}
         <div className="text-center mb-12">
@@ -64,23 +123,14 @@ export default function GameModeSelection() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 mb-12">
           {gameModes.map((mode) => {
             const IconComponent = mode.icon;
-            
+
             return (
               <div
                 key={mode.id}
                 className={`group relative bg-white/80 backdrop-blur-xl rounded-3xl shadow-xl border border-white/20 p-8 transition-all duration-300 hover:scale-105 hover:shadow-2xl ${
-                  mode.available 
-                    ? 'cursor-pointer' 
-                    : 'opacity-60 cursor-not-allowed'
+                  mode.available ? 'cursor-pointer' : 'opacity-60 cursor-not-allowed'
                 }`}
               >
-                {/* Coming Soon Badge */}
-                {!mode.available && (
-                  <div className="absolute -top-3 -right-3 bg-gradient-to-r from-yellow-400 to-orange-500 text-white text-xs font-bold px-3 py-1 rounded-full">
-                    Coming Soon
-                  </div>
-                )}
-
                 {/* Icon */}
                 <div className={`w-16 h-16 bg-gradient-to-br ${mode.gradient} rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform`}>
                   <IconComponent size={28} className="text-white" />
@@ -102,13 +152,31 @@ export default function GameModeSelection() {
 
                 {/* Action Button */}
                 {mode.available ? (
-                  <Link
-                    to={mode.path}
-                    className={`flex items-center justify-center gap-2 w-full py-3 bg-gradient-to-r ${mode.gradient} text-white rounded-2xl font-semibold hover:opacity-90 transition-all group-hover:scale-105`}
-                  >
-                    <span>Start Playing</span>
-                    <ArrowRight size={18} />
-                  </Link>
+                  mode.id === 'multiplayer' ? (
+                    <div className="space-y-3">
+                      <button
+                        onClick={() => setCreateModalOpen(true)}
+                        className={`flex items-center justify-center gap-2 w-full py-3 bg-gradient-to-r ${mode.gradient} text-white rounded-2xl font-semibold hover:opacity-90 transition-all group-hover:scale-105`}
+                      >
+                        <Plus size={18} />
+                        <span>Create Room</span>
+                      </button>
+                      <button
+                        onClick={() => setJoinModalOpen(true)}
+                        className={`flex items-center justify-center gap-2 w-full py-2 border-2 border-orange-500 text-orange-600 rounded-2xl font-semibold hover:bg-orange-50 transition-all`}
+                      >
+                        <span>Join Room</span>
+                      </button>
+                    </div>
+                  ) : (
+                    <Link
+                      to={mode.path}
+                      className={`flex items-center justify-center gap-2 w-full py-3 bg-gradient-to-r ${mode.gradient} text-white rounded-2xl font-semibold hover:opacity-90 transition-all group-hover:scale-105`}
+                    >
+                      <span>Start Playing</span>
+                      <ArrowRight size={18} />
+                    </Link>
+                  )
                 ) : (
                   <button
                     disabled
@@ -123,7 +191,7 @@ export default function GameModeSelection() {
           })}
         </div>
 
-        {/* Quick Stats */}
+        {/* Stats section */}
         <div className="bg-white/60 backdrop-blur-sm rounded-3xl border border-white/20 p-8">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8 text-center">
             <div className="flex flex-col items-center gap-3">
@@ -135,7 +203,7 @@ export default function GameModeSelection() {
                 <div className="text-sm text-gray-600">Puzzles Available</div>
               </div>
             </div>
-            
+
             <div className="flex flex-col items-center gap-3">
               <div className="w-12 h-12 bg-emerald-100 rounded-2xl flex items-center justify-center">
                 <Zap size={24} className="text-emerald-600" />
@@ -145,7 +213,7 @@ export default function GameModeSelection() {
                 <div className="text-sm text-gray-600">Feedback System</div>
               </div>
             </div>
-            
+
             <div className="flex flex-col items-center gap-3">
               <div className="w-12 h-12 bg-purple-100 rounded-2xl flex items-center justify-center">
                 <Sparkles size={24} className="text-purple-600" />
@@ -158,6 +226,19 @@ export default function GameModeSelection() {
           </div>
         </div>
       </div>
+
+      {/* Modals */}
+      <CreateRoomModal
+        isOpen={createModalOpen}
+        onClose={() => setCreateModalOpen(false)}
+        onSuccess={handleRoomCreated}
+      />
+
+      <JoinRoomModal
+        isOpen={joinModalOpen}
+        onClose={() => setJoinModalOpen(false)}
+        onSuccess={handleRoomJoined}
+      />
     </div>
   );
 }
